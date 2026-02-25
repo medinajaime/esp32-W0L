@@ -155,6 +155,22 @@ SDKCONFIG_DEFAULTS="sdkconfig.defaults;$USER_CONFIG" idf.py flash -p "$PORT"
 # Cleanup — credentials never touch the filesystem permanently
 rm -f "$USER_CONFIG"
 
+# ── Install wake-pc command ────────────────────────────────────
+INSTALL_DIR="$HOME/.local/bin"
+mkdir -p "$INSTALL_DIR"
+cp scripts/wake-pc "$INSTALL_DIR/wake-pc"
+chmod +x "$INSTALL_DIR/wake-pc"
+
+if echo "$PATH" | tr ':' '\n' | grep -q "$INSTALL_DIR"; then
+  ok "wake-pc installed to $INSTALL_DIR (already on PATH)"
+else
+  warn "wake-pc installed to $INSTALL_DIR"
+  echo ""
+  echo "  Add it to your PATH by adding this to your shell profile:"
+  echo ""
+  echo -e "  ${DIM}export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}"
+fi
+
 # ── Done ─────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════╗${RESET}"
@@ -165,7 +181,8 @@ echo "  Open the serial monitor to see the ESP32 Tailscale IP:"
 echo ""
 echo -e "  ${CYAN}idf.py monitor -p $PORT${RESET}"
 echo ""
-echo "  Then wake your PC from any Tailscale peer:"
+echo "  Then save it as the default and wake your PC from anywhere:"
 echo ""
-echo -e "  ${CYAN}python3 scripts/wake-pc <esp32-tailscale-ip>${RESET}"
+echo -e "  ${CYAN}wake-pc --save <esp32-tailscale-ip>${RESET}"
+echo -e "  ${CYAN}wake-pc${RESET}   ${DIM}# uses saved default from now on${RESET}"
 echo ""

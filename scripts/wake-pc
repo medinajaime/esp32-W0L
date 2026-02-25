@@ -6,34 +6,62 @@ Sends UDP triggers every second until the ESP32 confirms with an ACK ("ok"),
 then exits immediately. Worst-case wait: ~25 s (one full reconnect cycle).
 
 Usage:
-  wake-pc <esp32-tailscale-ip>
-  wake-pc <esp32-tailscale-ip> --port 9999
-  wake-pc <esp32-tailscale-ip> --timeout 30
+  wake-pc                              # uses saved default IP
+  wake-pc <esp32-tailscale-ip>         # specify IP explicitly
+  wake-pc --save 100.126.x.x          # save a default IP for next time
+  wake-pc --timeout 30                 # custom timeout
 
 The ESP32 Tailscale IP is shown in the serial monitor banner after boot,
 and in the Tailscale admin console under the device name "esp32-wol".
 """
 
+import os
 import socket
 import sys
 import time
 import argparse
 
+CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "wake-pc")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "default-ip")
+
+
+def load_default_ip():
+    try:
+        with open(CONFIG_FILE) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+
+def save_default_ip(ip):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG_FILE, "w") as f:
+        f.write(ip + "\n")
+    print(f"Saved default IP: {ip}")
+    print(f"  (stored in {CONFIG_FILE})")
+
 
 def main():
+    default_ip = load_default_ip()
+
     parser = argparse.ArgumentParser(
         description="Wake PC via ESP32 Tailscale WoL bridge",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  wake-pc 100.126.x.x
-  wake-pc 100.126.x.x --port 9999
-  wake-pc 100.126.x.x --timeout 30
+  wake-pc 100.126.x.x          # wake using this IP
+  wake-pc                       # wake using saved default IP
+  wake-pc --save 100.126.x.x   # save default IP for future use
         """
     )
     parser.add_argument(
-        "esp32_ip",
-        help="ESP32 Tailscale VPN IP (shown in serial monitor banner)"
+        "esp32_ip", nargs="?", default=default_ip,
+        help="ESP32 Tailscale VPN IP"
+             + (f" (default: {default_ip})" if default_ip else " (required on first use)")
+    )
+    parser.add_argument(
+        "--save", metavar="IP", dest="save_ip",
+        help="Save a default ESP32 IP for future use"
     )
     parser.add_argument(
         "--port", type=int, default=9999,
@@ -44,6 +72,18 @@ examples:
         help="Max seconds to wait for ACK (default: 25 — one full reconnect cycle)"
     )
     args = parser.parse_args()
+
+    if args.save_ip:
+        save_default_ip(args.save_ip)
+        if not args.esp32_ip:
+            args.esp32_ip = args.save_ip
+
+    if not args.esp32_ip:
+        parser.error(
+            "ESP32 IP required. Provide it as an argument or save a default:\n"
+            "  wake-pc 100.126.x.x          # one-time use\n"
+            "  wake-pc --save 100.126.x.x   # save for future"
+        )
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(1.0)  # wait up to 1 s for ACK after each send

@@ -520,19 +520,33 @@ I wol: UDP socket ready on Tailscale port 9999</code></pre>
 
     <h2 id="wake-pc-script">wake-pc Script</h2>
 
-    <p>The <code>scripts/wake-pc</code> script sends triggers every second until the ESP32 confirms receipt with an ACK, then exits immediately.</p>
+    <p>The <code>scripts/wake-pc</code> script sends triggers every second until the ESP32 confirms receipt with an ACK, then exits immediately. The setup script installs it to <code>~/.local/bin</code> so you can run it from anywhere.</p>
 
-    <pre><code class="language-bash">python3 scripts/wake-pc &lt;esp32-tailscale-ip&gt;
+    <h3>First use — save your ESP32 IP</h3>
+    <p>After flashing, find the ESP32's Tailscale IP in the serial monitor (or in the <a href="https://login.tailscale.com/admin/machines" target="_blank">Tailscale admin console</a>), then save it:</p>
+    <pre><code class="language-bash">wake-pc --save 100.126.x.x</code></pre>
+    <p>This stores the IP in <code>~/.config/wake-pc/default-ip</code>. From now on, just run:</p>
+    <pre><code class="language-bash">wake-pc</code></pre>
 
-# With custom port
-python3 scripts/wake-pc 100.126.x.x --port 9999
+    <h3>Options</h3>
+    <pre><code class="language-bash"># Explicit IP (overrides saved default)
+wake-pc 100.126.x.x
+
+# Custom port (default: 9999)
+wake-pc --port 9999
 
 # Custom timeout (default: 25 s — one full reconnect cycle)
-python3 scripts/wake-pc 100.126.x.x --timeout 30</code></pre>
+wake-pc --timeout 30
+
+# Save a default IP
+wake-pc --save 100.126.x.x</code></pre>
 
     <p>Example output:</p>
     <pre><code>Waking PC via ESP32 (100.126.x.x:9999) ...
-Done! Magic packet sent (confirmed on attempt 7).</code></pre>
+Done! ESP32 confirmed (attempt 3).</code></pre>
+
+    <h3>Install on other devices</h3>
+    <p>Copy <code>scripts/wake-pc</code> to any Tailscale-connected machine (laptop, server, Raspberry Pi) and run <code>wake-pc --save &lt;ip&gt;</code>. It works from <strong>any device on your tailnet</strong> — not just the machine the ESP32 was flashed from. The only requirement is Python 3.</p>
 
     <p>The script uses a single persistent UDP socket (same source port throughout), so when the ESP32 sends back <code>ok</code>, the response is received by the same socket that sent the trigger.</p>
 
