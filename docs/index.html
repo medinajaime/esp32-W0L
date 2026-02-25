@@ -20,13 +20,41 @@
     .hero::before {
       content: '';
       position: absolute;
-      top: -120px;
+      top: -180px;
       left: 50%;
       transform: translateX(-50%);
-      width: 600px;
-      height: 600px;
-      background: radial-gradient(circle, rgba(34,211,238,0.08) 0%, transparent 70%);
+      width: 900px;
+      height: 900px;
+      background: radial-gradient(circle, rgba(34,211,238,0.10) 0%, rgba(34,211,238,0.03) 35%, transparent 65%);
       pointer-events: none;
+      animation: hero-pulse 8s ease-in-out infinite alternate;
+    }
+
+    @keyframes hero-pulse {
+      0%   { opacity: 0.7; transform: translateX(-50%) scale(1); }
+      100% { opacity: 1;   transform: translateX(-50%) scale(1.1); }
+    }
+
+    /* Section glow accents */
+    .section { position: relative; }
+
+    .glow-accent {
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      pointer-events: none;
+      filter: blur(80px);
+      opacity: 0.5;
+      z-index: -1;
+    }
+
+    .glow-accent--cyan {
+      background: rgba(34,211,238,0.06);
+    }
+
+    .glow-accent--green {
+      background: rgba(74,222,128,0.05);
     }
 
     .hero-eyebrow {
@@ -82,7 +110,10 @@
       border-radius: var(--radius-lg);
       overflow: hidden;
       text-align: left;
-      box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+      box-shadow:
+        0 24px 80px rgba(0,0,0,0.6),
+        0 0 60px rgba(34,211,238,0.06),
+        inset 0 1px 0 rgba(255,255,255,0.04);
     }
 
     .terminal-bar {
@@ -205,7 +236,7 @@
       transition: border-color 0.2s, transform 0.2s;
     }
 
-    .step-card:hover { border-color: var(--primary); transform: translateY(-2px); }
+    .step-card:hover { border-color: var(--primary); transform: translateY(-4px); box-shadow: 0 12px 40px rgba(34,211,238,0.08); }
 
     .step-num {
       width: 32px; height: 32px;
@@ -241,7 +272,10 @@
       display: flex;
       align-items: flex-start;
       gap: 14px;
+      transition: border-color 0.2s, transform 0.2s;
     }
+
+    .hw-item:hover { border-color: var(--primary); transform: translateY(-2px); }
 
     .hw-icon { font-size: 1.5rem; flex-shrink: 0; margin-top: 2px; }
     .hw-name { font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
@@ -281,7 +315,7 @@
     /* Why section */
     .why-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(2, 1fr);
       gap: 16px;
       max-width: 900px;
       margin: 0 auto;
@@ -300,11 +334,29 @@
     .why-card.highlight {
       border-color: var(--primary);
       background: var(--primary-dim);
+      box-shadow: 0 0 24px rgba(34,211,238,0.08), inset 0 1px 0 rgba(34,211,238,0.15);
     }
 
     .why-card.highlight h4 { color: var(--primary); }
 
-    @media (max-width: 640px) {
+    /* Fade-in on scroll */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(30px);
+      transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+    }
+
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .fade-in:nth-child(2) { transition-delay: 0.1s; }
+    .fade-in:nth-child(3) { transition-delay: 0.2s; }
+    .fade-in:nth-child(4) { transition-delay: 0.3s; }
+
+    @media (max-width: 540px) {
+      .why-grid { grid-template-columns: 1fr; }
       .flow { flex-direction: column; }
       .flow-arrow { transform: rotate(90deg); }
       .hero { padding: 60px 24px 60px; }
@@ -375,12 +427,13 @@
 
 <!-- How it works -->
 <section class="section" id="how-it-works">
+  <div class="glow-accent glow-accent--cyan" style="top: -100px; right: -200px;"></div>
   <div class="container">
-    <div class="section-label">How it works</div>
-    <h2 class="section-title">Three hops from command to power-on</h2>
-    <p class="section-sub">Everything is end-to-end encrypted. The relay server only sees ciphertext.</p>
+    <div class="section-label fade-in">How it works</div>
+    <h2 class="section-title fade-in">Three hops from command to power-on</h2>
+    <p class="section-sub fade-in">Everything is end-to-end encrypted. The relay server only sees ciphertext.</p>
 
-    <div class="flow">
+    <div class="flow fade-in">
       <div class="flow-node">
         <div class="flow-node-icon">💻</div>
         <div class="flow-node-label">You</div>
@@ -407,17 +460,17 @@
     </div>
 
     <div class="steps-grid">
-      <div class="step-card">
+      <div class="step-card fade-in">
         <div class="step-num">1</div>
         <h3>ESP32 joins your Tailscale network</h3>
         <p>The ESP32 connects to your WiFi and registers with Tailscale using a full ts2021 WireGuard implementation that fits in 520 KB of RAM.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card fade-in">
         <div class="step-num">2</div>
         <h3>You send a single UDP packet</h3>
         <p>From any device on your Tailscale network — laptop, phone, home server — run <code>wake-pc</code>. The packet is WireGuard-encrypted end-to-end.</p>
       </div>
-      <div class="step-card">
+      <div class="step-card fade-in">
         <div class="step-num">3</div>
         <h3>ESP32 broadcasts the magic packet</h3>
         <p>The ESP32 fires a 102-byte WoL magic packet to <code>255.255.255.255:9</code> on your local network. Your PC's NIC sees it and powers on.</p>
@@ -428,24 +481,25 @@
 
 <!-- Why not alternatives -->
 <section class="section" style="padding-top: 0;">
+  <div class="glow-accent glow-accent--green" style="bottom: -100px; left: -200px;"></div>
   <div class="container">
-    <div class="section-label">Why this approach</div>
-    <h2 class="section-title">The alternatives all have problems</h2>
-    <p class="section-sub">Most WoL solutions require permanent changes to your network or an always-on server.</p>
+    <div class="section-label fade-in">Why this approach</div>
+    <h2 class="section-title fade-in">The alternatives all have problems</h2>
+    <p class="section-sub fade-in">Most WoL solutions require permanent changes to your network or an always-on server.</p>
     <div class="why-grid">
-      <div class="why-card">
+      <div class="why-card fade-in">
         <h4>❌ Port forwarding UDP 9</h4>
         <p>Exposes your router to the internet. Requires a static IP or DDNS. One misconfiguration and you have a security hole.</p>
       </div>
-      <div class="why-card">
+      <div class="why-card fade-in">
         <h4>❌ Always-on server (Pi, NAS…)</h4>
         <p>Defeats the purpose. You're keeping a machine running 24/7 just to wake another machine.</p>
       </div>
-      <div class="why-card">
+      <div class="why-card fade-in">
         <h4>❌ Router WoL support</h4>
         <p>Uncommon in consumer routers. Requires router-specific setup. Not portable between homes.</p>
       </div>
-      <div class="why-card highlight">
+      <div class="why-card highlight fade-in">
         <h4>✓ esp32-wol</h4>
         <p>$5 hardware. Zero port forwarding. Works behind any NAT. Secure by default (Tailscale + WireGuard). Draws ~80 mW.</p>
       </div>
@@ -456,11 +510,11 @@
 <!-- Hardware -->
 <section class="section hardware-section">
   <div class="container">
-    <div class="section-label">Hardware</div>
-    <h2 class="section-title">Everything you need</h2>
-    <p class="section-sub">Any ESP32 works. No PSRAM required.</p>
+    <div class="section-label fade-in">Hardware</div>
+    <h2 class="section-title fade-in">Everything you need</h2>
+    <p class="section-sub fade-in">Any ESP32 works. No PSRAM required.</p>
     <div class="hardware-grid">
-      <div class="hw-item">
+      <div class="hw-item fade-in">
         <div class="hw-icon">🔌</div>
         <div>
           <div class="hw-name">NodeMCU-32S or any ESP32</div>
@@ -468,7 +522,7 @@
           <div class="hw-price">~$5 on Amazon</div>
         </div>
       </div>
-      <div class="hw-item">
+      <div class="hw-item fade-in">
         <div class="hw-icon">🔋</div>
         <div>
           <div class="hw-name">USB power supply</div>
@@ -476,7 +530,7 @@
           <div class="hw-price">Already have one</div>
         </div>
       </div>
-      <div class="hw-item">
+      <div class="hw-item fade-in">
         <div class="hw-icon">🖧</div>
         <div>
           <div class="hw-name">PC with Ethernet + WoL</div>
@@ -490,10 +544,11 @@
 
 <!-- Quick start -->
 <section class="section" id="quickstart">
+  <div class="glow-accent glow-accent--cyan" style="top: 0; left: -150px;"></div>
   <div class="container">
-    <div class="section-label">Quick start</div>
-    <h2 class="section-title">Up and running in minutes</h2>
-    <p class="section-sub">The setup script handles everything: ESP-IDF check, configuration, build, and flash.</p>
+    <div class="section-label fade-in">Quick start</div>
+    <h2 class="section-title fade-in">Up and running in minutes</h2>
+    <p class="section-sub fade-in">The setup script handles everything: ESP-IDF check, configuration, build, and flash.</p>
 
     <div class="quickstart-steps">
 
@@ -547,6 +602,19 @@ cd wol-esp32</code></pre>
     </span>
   </div>
 </footer>
+
+<script>
+// Fade-in on scroll using IntersectionObserver
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+</script>
 
 </body>
 </html>
