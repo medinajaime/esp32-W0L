@@ -1,0 +1,61 @@
+# sdkconfig.defaults — NodeMCU-32S / ESP32S (no PSRAM)
+# Based on microlink/examples/ping_pong_esp32/sdkconfig.defaults
+
+# ── TLS / HTTPS (required for Tailscale coordination) ────────────────────────
+CONFIG_ESP_TLS_USING_MBEDTLS=y
+CONFIG_MBEDTLS_SSL_PROTO_TLS1_2=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+
+# Shrink mbedTLS buffers to reclaim SRAM
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+
+# ── HTTP/2 (Tailscale coordination uses HTTP/2) ───────────────────────────────
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
+# Note: nghttp2 HTTP/2 support is bundled in esp_http_client on ESP-IDF 5.x
+
+# ── lwIP — reduced buffers for memory-constrained ESP32 ──────────────────────
+CONFIG_LWIP_IPV4=y
+CONFIG_LWIP_DHCP_DOES_ARP_CHECK=n
+CONFIG_LWIP_IP4_FRAG=y
+CONFIG_LWIP_IP4_REASSEMBLY=y
+CONFIG_LWIP_TCP_MSS=1436
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=4096
+CONFIG_LWIP_TCP_WND_DEFAULT=4096
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=6
+CONFIG_LWIP_UDP_RECVMBOX_SIZE=6
+
+# ── Memory ────────────────────────────────────────────────────────────────────
+# No PSRAM on NodeMCU-32S — intentionally NOT setting CONFIG_SPIRAM
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+
+# ── MicroLink — tuned for minimal SRAM usage ─────────────────────────────────
+# 24 KB coord buffer (minimum safe for small tailnets; increase to 32 if needed)
+CONFIG_MICROLINK_COORD_BUFFER_SIZE_KB=16
+# Max 4 peers; we only need 1 remote device to trigger WoL
+CONFIG_MICROLINK_MAX_PEERS=4
+
+# ── WiFi — reduced buffers ────────────────────────────────────────────────────
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_TX_BUFFER_TYPE=1
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
+CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
+
+# ── Flash / partition table ───────────────────────────────────────────────────
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# ── Compiler ──────────────────────────────────────────────────────────────────
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL_INFO=y
+
+# ── FreeRTOS ─────────────────────────────────────────────────────────────────
+CONFIG_FREERTOS_HZ=1000

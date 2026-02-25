@@ -1,0 +1,54 @@
+menu "Wake-on-LAN Configuration"
+
+    config WOL_WIFI_SSID
+        string "WiFi SSID"
+        default "myssid"
+        help
+            SSID of the local WiFi network.
+
+    config WOL_WIFI_PASSWORD
+        string "WiFi Password"
+        default ""
+        help
+            Password for the WiFi network (leave empty for open networks).
+
+    config WOL_TAILSCALE_AUTH_KEY
+        string "Tailscale Auth Key"
+        default "tskey-auth-XXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+        help
+            Auth key from https://login.tailscale.com/admin/settings/keys
+            Tip: generate a reusable ephemeral key so the device does not
+            linger in your admin panel when offline.
+
+    config WOL_DEVICE_NAME
+        string "Tailscale Device Name"
+        default "esp32-wol"
+        help
+            Name this device will appear as in the Tailscale admin console.
+
+    config WOL_TARGET_MAC
+        string "Target PC MAC Address"
+        default "AA:BB:CC:DD:EE:FF"
+        help
+            Ethernet MAC address of the NIC to wake (colon-separated hex).
+            On Linux: ip link show   or   cat /sys/class/net/<iface>/address
+            On Windows: ipconfig /all
+
+    config WOL_LISTEN_PORT
+        int "UDP Trigger Port"
+        default 9999
+        range 1024 65535
+        help
+            UDP port to listen on for incoming wake triggers (over Tailscale).
+            Send any UDP packet to <esp32-tailscale-ip>:<port> to fire WoL.
+            Example: echo wake | nc -u <tailscale-ip> 9999 -w1
+
+    config WOL_BROADCAST_IP
+        string "LAN Broadcast IP"
+        default "255.255.255.255"
+        help
+            IP address to broadcast the magic packet to.
+            255.255.255.255 works on most home networks.
+            For a segmented network use the subnet broadcast, e.g. 192.168.1.255.
+
+endmenu
