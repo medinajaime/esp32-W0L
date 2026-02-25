@@ -26,20 +26,9 @@ echo ""
 [[ -f CMakeLists.txt && -f sdkconfig.defaults ]] || \
   die "Run this script from the wol-esp32 project root."
 
-# ── Find MicroLink ───────────────────────────────────────────
-MICROLINK_DIR="$(cd ..; pwd)/microlink"
-if [[ ! -d "$MICROLINK_DIR" ]]; then
-  warn "MicroLink not found at $MICROLINK_DIR"
-  echo ""
-  echo "  MicroLink is a required dependency. Clone it:"
-  echo ""
-  echo -e "  ${DIM}cd .."
-  echo -e "  git clone https://github.com/CamM2325/microlink"
-  echo -e "  cd wol-esp32${RESET}"
-  echo ""
-  die "Please clone MicroLink and re-run setup.sh"
-fi
-ok "MicroLink found at $MICROLINK_DIR"
+# ── Check vendored Tailscale library ──────────────────────────
+[[ -d "microlink/src" ]] || die "Vendored Tailscale library not found in microlink/. Is the repo intact?"
+ok "Tailscale library found"
 
 # ── Find ESP-IDF ─────────────────────────────────────────────
 find_idf() {

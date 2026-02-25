@@ -233,7 +233,6 @@
     <ul class="nav-links">
       <li><a href="index.html">Home</a></li>
       <li><a href="docs.html" style="color:var(--text)">Docs</a></li>
-      <li><a href="https://github.com/CamM2325/microlink" class="hide-mobile" target="_blank">MicroLink ↗</a></li>
       <li><a href="https://github.com/medinajaime/esp32-W0L" target="_blank" class="btn-nav">GitHub ↗</a></li>
     </ul>
   </div>
@@ -330,13 +329,7 @@
     <pre><code class="language-bash">git clone https://github.com/medinajaime/esp32-W0L
 cd wol-esp32</code></pre>
 
-    <h3>2. Clone MicroLink (required dependency)</h3>
-    <p>MicroLink must be cloned as a <strong>sibling directory</strong> of <code>wol-esp32</code>:</p>
-    <pre><code class="language-bash">cd ..
-git clone https://github.com/CamM2325/microlink
-cd wol-esp32</code></pre>
-
-    <h3>3. Run the setup script</h3>
+    <h3>2. Run the setup script</h3>
     <pre><code class="language-bash">./scripts/setup.sh</code></pre>
     <p>The script will:</p>
     <ul>
@@ -570,7 +563,7 @@ done</code></pre>
 
     <h2 id="state-machine">State Machine</h2>
 
-    <p>MicroLink progresses through these states on boot and after each coordination reconnection:</p>
+    <p>The firmware progresses through these states on boot and after each coordination reconnection:</p>
 
     <div class="state-flow">
       <span class="state-box">IDLE</span>
@@ -602,7 +595,7 @@ done</code></pre>
     <h2 id="wireguard-derp">WireGuard &amp; DERP</h2>
 
     <h3>WireGuard</h3>
-    <p>MicroLink uses <a href="https://github.com/smartalock/wireguard-lwip" target="_blank">wireguard-lwip</a>, which implements WireGuard as a lwIP network interface (<code>wg0</code>). The handshake uses <strong>Noise_IK_25519_ChaChaPoly_BLAKE2s</strong>:</p>
+    <p>The firmware uses <a href="https://github.com/smartalock/wireguard-lwip" target="_blank">wireguard-lwip</a>, which implements WireGuard as a lwIP network interface (<code>wg0</code>). The handshake uses <strong>Noise_IK_25519_ChaChaPoly_BLAKE2s</strong>:</p>
     <ul>
       <li><strong>X25519</strong> — Diffie-Hellman key agreement</li>
       <li><strong>ChaCha20-Poly1305</strong> — authenticated encryption of all data</li>
@@ -610,7 +603,7 @@ done</code></pre>
     </ul>
 
     <h3>DERP relay</h3>
-    <p>When direct UDP between peers is blocked by NAT (the common case for a home ESP32), Tailscale routes traffic through a <strong>DERP</strong> (Designated Encrypted Relay for Packets) server. MicroLink connects to DERP over TLS 1.2 on port 443 — the same as HTTPS — so it passes through almost every firewall.</p>
+    <p>When direct UDP between peers is blocked by NAT (the common case for a home ESP32), Tailscale routes traffic through a <strong>DERP</strong> (Designated Encrypted Relay for Packets) server. The firmware connects to DERP over TLS 1.2 on port 443 — the same as HTTPS — so it passes through almost every firewall.</p>
 
     <p>DERP is transparent to the application. WireGuard-encrypted packets are wrapped in a DERP frame and relayed. The relay server sees only opaque ciphertext; all traffic is still end-to-end encrypted.</p>
 
@@ -625,7 +618,7 @@ DERP relay server
 ESP32 — wireguard-lwip decrypts the frame
   │  Plaintext UDP payload delivered to lwIP socket
   ▼
-wol_task — microlink_udp_recv() returns ESP_OK
+wol_task — UDP recv returns ESP_OK
   │  Builds 102-byte magic packet
   │  Broadcasts to 255.255.255.255:9 via WiFi STA interface
   ▼
@@ -651,7 +644,7 @@ Bytes 6–101 : &lt;target MAC&gt; × 16          (MAC repeated 16 times)</code>
       <tbody>
         <tr><td>WiFi driver (static RX/TX buffers)</td><td>~48 KB</td></tr>
         <tr><td>mbedTLS handshake + buffers (dynamic)</td><td>~40 KB</td></tr>
-        <tr><td>MicroLink state + peer table</td><td>~20 KB</td></tr>
+        <tr><td>Tailscale state + peer table</td><td>~20 KB</td></tr>
         <tr><td>WireGuard session state</td><td>~16 KB</td></tr>
         <tr><td>FreeRTOS task stacks</td><td>~20 KB</td></tr>
         <tr><td>lwIP buffers</td><td>~16 KB</td></tr>
@@ -675,7 +668,7 @@ Bytes 6–101 : &lt;target MAC&gt; × 16          (MAC repeated 16 times)</code>
 
     <p>The Tailscale coordination server closes the HTTP/2 long-poll connection every 10–12 seconds. This is normal. When it happens:</p>
     <ol>
-      <li>MicroLink transitions <code>MONITORING → REGISTERING</code></li>
+      <li>The firmware transitions <code>MONITORING → REGISTERING</code></li>
       <li>Re-registers and re-fetches the peer list (~12 s total)</li>
       <li>Returns to <code>MONITORING</code></li>
     </ol>
@@ -724,7 +717,7 @@ Bytes 6–101 : &lt;target MAC&gt; × 16          (MAC repeated 16 times)</code>
 
     <h3>DISCO socket errors in serial output</h3>
     <pre><code>E ml_disco: disco_send_udp4: socket not initialized!</code></pre>
-    <p>This is non-fatal. DISCO is used for direct UDP path optimisation (bypassing the DERP relay). If it fails, MicroLink falls back to DERP, which works reliably for WoL purposes. You can ignore these messages.</p>
+    <p>This is non-fatal. DISCO is used for direct UDP path optimisation (bypassing the DERP relay). If it fails, the firmware falls back to DERP, which works reliably for WoL purposes. You can ignore these messages.</p>
 
     <!-- ── Limitations ────────────────────────────────── -->
 
@@ -765,8 +758,6 @@ Bytes 6–101 : &lt;target MAC&gt; × 16          (MAC repeated 16 times)</code>
     <span>esp32-wol documentation</span>
     <span>
       <a href="index.html">Home</a>
-      &nbsp;·&nbsp;
-      <a href="https://github.com/CamM2325/microlink" target="_blank">MicroLink</a>
       &nbsp;·&nbsp;
       MIT License
     </span>
