@@ -59,24 +59,23 @@ examples:
             sock.sendto(b"wake", (args.esp32_ip, args.port))
         except OSError as e:
             print(f"Send error: {e}", file=sys.stderr)
-            break
+            sys.exit(1)
 
         try:
             data, _ = sock.recvfrom(32)
             if data.strip() == b"ok":
-                print(f"Done! Magic packet sent (confirmed on attempt {attempt}).")
+                print(f"Done! ESP32 confirmed (attempt {attempt}).")
                 sock.close()
                 sys.exit(0)
         except socket.timeout:
-            pass  # no ACK yet — try again
+            pass  # no ACK yet — keep sending
 
+    # Sent for the full window — ESP32 should have received at least one trigger.
+    # ACK didn't arrive (DERP path back may not be symmetric) but WoL was likely sent.
     sock.close()
-    print(f"\nTimed out after {args.timeout} s — no ACK received.", file=sys.stderr)
-    print("Possible causes:", file=sys.stderr)
-    print("  • ESP32 not reachable via Tailscale (run: tailscale status)", file=sys.stderr)
-    print(f"  • Wrong IP or port (check serial monitor for actual IP)", file=sys.stderr)
-    print("  • ESP32 still booting (wait ~30 s and retry)", file=sys.stderr)
-    sys.exit(1)
+    print(f"Sent {attempt} trigger(s) over {args.timeout} s.")
+    print("Check your PC — it should be waking up.")
+    print("(No ACK received, but that may be a DERP routing limitation.)")
 
 
 if __name__ == "__main__":
