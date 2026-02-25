@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>esp32-wol — Wake your PC from anywhere</title>
+  <meta name="description" content="A $5 ESP32 joins your Tailscale network and wakes your PC from anywhere in the world. No port forwarding, no static IP, no always-on server.">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* ── Landing-page specific styles ── */
+
+    /* Hero */
+    .hero {
+      padding: 100px 24px 80px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -120px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(34,211,238,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 24px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      padding: 5px 14px;
+      border-radius: 20px;
+      background: var(--surface);
+    }
+
+    .hero-eyebrow span { color: var(--primary); }
+
+    .hero h1 {
+      font-size: clamp(2.4rem, 6vw, 4rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 20px;
+    }
+
+    .hero h1 em {
+      font-style: normal;
+      color: var(--primary);
+    }
+
+    .hero-sub {
+      font-size: 1.15rem;
+      color: var(--muted);
+      max-width: 520px;
+      margin: 0 auto 36px;
+      line-height: 1.7;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 60px;
+    }
+
+    /* Terminal */
+    .terminal {
+      max-width: 640px;
+      margin: 0 auto;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      text-align: left;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+    }
+
+    .terminal-bar {
+      background: var(--surface-2);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red    { background: #ff5f57; }
+    .terminal-dot.yellow { background: #febc2e; }
+    .terminal-dot.green  { background: #28c840; }
+    .terminal-title { font-family: var(--mono); font-size: 0.75rem; color: var(--subtle); margin-left: 8px; }
+
+    .terminal-body {
+      padding: 20px 24px;
+      font-family: var(--mono);
+      font-size: 0.83rem;
+      line-height: 1.9;
+    }
+
+    .t-prompt { color: var(--green); }
+    .t-cmd    { color: var(--text); }
+    .t-out    { color: var(--muted); }
+    .t-ok     { color: var(--green); }
+    .t-dim    { color: var(--subtle); }
+    .t-cyan   { color: var(--primary); }
+
+    .cursor {
+      display: inline-block;
+      width: 8px; height: 14px;
+      background: var(--primary);
+      vertical-align: middle;
+      animation: blink 1.1s step-end infinite;
+    }
+
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* How it works */
+    .section { padding: 80px 24px; }
+    .section-label {
+      text-align: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--primary);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      text-align: center;
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+    .section-sub {
+      text-align: center;
+      color: var(--muted);
+      max-width: 480px;
+      margin: 0 auto 56px;
+      font-size: 1rem;
+    }
+
+    /* Flow diagram */
+    .flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      flex-wrap: wrap;
+      margin-bottom: 64px;
+    }
+
+    .flow-node {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      text-align: center;
+      min-width: 140px;
+      transition: border-color 0.2s;
+    }
+
+    .flow-node:hover { border-color: var(--primary); }
+
+    .flow-node-icon { font-size: 1.8rem; margin-bottom: 8px; }
+    .flow-node-label { font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
+    .flow-node-sub { font-size: 0.75rem; color: var(--muted); }
+
+    .flow-arrow {
+      color: var(--subtle);
+      font-size: 1.2rem;
+      padding: 0 8px;
+      flex-shrink: 0;
+    }
+
+    /* Steps grid */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    .step-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      position: relative;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .step-card:hover { border-color: var(--primary); transform: translateY(-2px); }
+
+    .step-num {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--primary-dim);
+      border: 1px solid var(--primary);
+      color: var(--primary);
+      font-weight: 700;
+      font-size: 0.85rem;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    .step-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+    .step-card p  { font-size: 0.875rem; color: var(--muted); line-height: 1.6; }
+
+    /* Hardware */
+    .hardware-section { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+    .hardware-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .hw-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+
+    .hw-icon { font-size: 1.5rem; flex-shrink: 0; margin-top: 2px; }
+    .hw-name { font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
+    .hw-note { font-size: 0.8rem; color: var(--muted); }
+    .hw-price { font-size: 0.75rem; color: var(--green); font-weight: 600; margin-top: 4px; }
+
+    /* Quick start */
+    .quickstart-steps {
+      max-width: 640px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .qs-step {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .qs-num {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #09090b;
+      font-weight: 700;
+      font-size: 0.85rem;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .qs-label { font-weight: 600; margin-bottom: 10px; }
+
+    /* Why section */
+    .why-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .why-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+
+    .why-card h4 { font-size: 0.9rem; font-weight: 600; margin-bottom: 8px; }
+    .why-card p  { font-size: 0.82rem; color: var(--muted); line-height: 1.6; }
+
+    .why-card.highlight {
+      border-color: var(--primary);
+      background: var(--primary-dim);
+    }
+
+    .why-card.highlight h4 { color: var(--primary); }
+
+    @media (max-width: 640px) {
+      .flow { flex-direction: column; }
+      .flow-arrow { transform: rotate(90deg); }
+      .hero { padding: 60px 24px 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <div class="nav-logo-icon">⚡</div>
+      esp32-wol
+    </a>
+    <ul class="nav-links">
+      <li class="hide-mobile"><a href="#how-it-works">How it works</a></li>
+      <li class="hide-mobile"><a href="#quickstart">Quick start</a></li>
+      <li><a href="docs.html">Docs</a></li>
+      <li><a href="https://github.com/CamM2325/microlink" class="hide-mobile" target="_blank">MicroLink ↗</a></li>
+      <li><a href="#" class="btn-nav">GitHub ↗</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-eyebrow">
+    <span>⚡</span> ESP32 &nbsp;·&nbsp; Tailscale &nbsp;·&nbsp; WireGuard &nbsp;·&nbsp; ~$5
+  </div>
+  <h1>Wake your PC<br>from <em>anywhere</em>.</h1>
+  <p class="hero-sub">
+    A $5 ESP32 joins your Tailscale network and stays on your LAN 24/7.
+    Send one UDP packet from anywhere in the world — your PC wakes up.
+    No port forwarding. No static IP. No always-on server.
+  </p>
+  <div class="hero-actions">
+    <a href="#quickstart" class="btn btn-primary">Get started →</a>
+    <a href="docs.html" class="btn btn-secondary">Read the docs</a>
+  </div>
+
+  <!-- Terminal demo -->
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="terminal-dot red"></div>
+      <div class="terminal-dot yellow"></div>
+      <div class="terminal-dot green"></div>
+      <span class="terminal-title">setup &amp; wake</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-prompt">$</span> <span class="t-cmd">./scripts/setup.sh</span></div>
+      <div class="t-dim">╔══════════════════════════════════════╗</div>
+      <div class="t-dim">║  ESP32 Wake-on-LAN  —  Setup         ║</div>
+      <div class="t-dim">╚══════════════════════════════════════╝</div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Found ESP-IDF at: ~/esp/esp-idf</span></div>
+      <div><span class="t-out">  WiFi SSID:          </span><span class="t-cyan">MyHomeNetwork</span></div>
+      <div><span class="t-out">  Tailscale Auth Key: </span><span class="t-cyan">tskey-auth-●●●●●</span></div>
+      <div><span class="t-out">  Target PC MAC:      </span><span class="t-cyan">10:FF:E0:08:CC:4C</span></div>
+      <div class="t-out">  Building... ██████████████████ 100%</div>
+      <div class="t-out">  Flashing... ██████████████████ 100%</div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Done! ESP32 Tailscale IP: </span><span class="t-cyan">100.x.x.x</span></div>
+      <br>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">wake-pc 100.x.x.x</span></div>
+      <div class="t-out">  Waking PC via ESP32 (100.x.x.x:9999) ...</div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Done! Magic packet sent (attempt 7).</span> <span class="cursor"></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="section" id="how-it-works">
+  <div class="container">
+    <div class="section-label">How it works</div>
+    <h2 class="section-title">Three hops from command to power-on</h2>
+    <p class="section-sub">Everything is end-to-end encrypted. The relay server only sees ciphertext.</p>
+
+    <div class="flow">
+      <div class="flow-node">
+        <div class="flow-node-icon">💻</div>
+        <div class="flow-node-label">You</div>
+        <div class="flow-node-sub">Any Tailscale peer</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">
+        <div class="flow-node-icon">🌐</div>
+        <div class="flow-node-label">DERP relay</div>
+        <div class="flow-node-sub">Tailscale network</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node" style="border-color: var(--primary);">
+        <div class="flow-node-icon">⚡</div>
+        <div class="flow-node-label">ESP32</div>
+        <div class="flow-node-sub">On your LAN, 24/7</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">
+        <div class="flow-node-icon">🖥️</div>
+        <div class="flow-node-label">Your PC</div>
+        <div class="flow-node-sub">Magic packet broadcast</div>
+      </div>
+    </div>
+
+    <div class="steps-grid">
+      <div class="step-card">
+        <div class="step-num">1</div>
+        <h3>ESP32 joins your Tailscale network</h3>
+        <p>The ESP32 connects to your WiFi and registers with Tailscale using MicroLink — a full ts2021 WireGuard implementation that fits in 520 KB of RAM.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num">2</div>
+        <h3>You send a single UDP packet</h3>
+        <p>From any device on your Tailscale network — laptop, phone, home server — run <code>wake-pc</code>. The packet is WireGuard-encrypted end-to-end.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num">3</div>
+        <h3>ESP32 broadcasts the magic packet</h3>
+        <p>The ESP32 fires a 102-byte WoL magic packet to <code>255.255.255.255:9</code> on your local network. Your PC's NIC sees it and powers on.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Why not alternatives -->
+<section class="section" style="padding-top: 0;">
+  <div class="container">
+    <div class="section-label">Why this approach</div>
+    <h2 class="section-title">The alternatives all have problems</h2>
+    <p class="section-sub">Most WoL solutions require permanent changes to your network or an always-on server.</p>
+    <div class="why-grid">
+      <div class="why-card">
+        <h4>❌ Port forwarding UDP 9</h4>
+        <p>Exposes your router to the internet. Requires a static IP or DDNS. One misconfiguration and you have a security hole.</p>
+      </div>
+      <div class="why-card">
+        <h4>❌ Always-on server (Pi, NAS…)</h4>
+        <p>Defeats the purpose. You're keeping a machine running 24/7 just to wake another machine.</p>
+      </div>
+      <div class="why-card">
+        <h4>❌ Router WoL support</h4>
+        <p>Uncommon in consumer routers. Requires router-specific setup. Not portable between homes.</p>
+      </div>
+      <div class="why-card highlight">
+        <h4>✓ esp32-wol</h4>
+        <p>$5 hardware. Zero port forwarding. Works behind any NAT. Secure by default (Tailscale + WireGuard). Draws ~80 mW.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Hardware -->
+<section class="section hardware-section">
+  <div class="container">
+    <div class="section-label">Hardware</div>
+    <h2 class="section-title">Everything you need</h2>
+    <p class="section-sub">Any ESP32 works. No PSRAM required.</p>
+    <div class="hardware-grid">
+      <div class="hw-item">
+        <div class="hw-icon">🔌</div>
+        <div>
+          <div class="hw-name">NodeMCU-32S or any ESP32</div>
+          <div class="hw-note">No PSRAM needed. HiLetgo, Espressif DevKitC, or any generic ESP32 board works.</div>
+          <div class="hw-price">~$5 on Amazon</div>
+        </div>
+      </div>
+      <div class="hw-item">
+        <div class="hw-icon">🔋</div>
+        <div>
+          <div class="hw-name">USB power supply</div>
+          <div class="hw-note">Any 5 V phone charger. After the first flash, only power is needed.</div>
+          <div class="hw-price">Already have one</div>
+        </div>
+      </div>
+      <div class="hw-item">
+        <div class="hw-icon">🖧</div>
+        <div>
+          <div class="hw-name">PC with Ethernet + WoL</div>
+          <div class="hw-note">Target machine must be connected via wired Ethernet and have WoL enabled in BIOS.</div>
+          <div class="hw-price">Enable in BIOS settings</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Quick start -->
+<section class="section" id="quickstart">
+  <div class="container">
+    <div class="section-label">Quick start</div>
+    <h2 class="section-title">Up and running in minutes</h2>
+    <p class="section-sub">The setup script handles everything: ESP-IDF check, configuration, build, and flash.</p>
+
+    <div class="quickstart-steps">
+
+      <div class="qs-step">
+        <div class="qs-num">1</div>
+        <div>
+          <div class="qs-label">Clone the repo and MicroLink</div>
+          <pre><code class="language-bash">git clone https://github.com/YOUR_USERNAME/wol-esp32
+cd wol-esp32</code></pre>
+        </div>
+      </div>
+
+      <div class="qs-step">
+        <div class="qs-num">2</div>
+        <div>
+          <div class="qs-label">Run the setup script</div>
+          <pre><code class="language-bash">./scripts/setup.sh</code></pre>
+          <p style="margin-top:10px; font-size:0.85rem; color:var(--muted);">
+            The script prompts for your WiFi credentials, Tailscale auth key, and target PC MAC address — then builds and flashes automatically.
+          </p>
+        </div>
+      </div>
+
+      <div class="qs-step">
+        <div class="qs-num">3</div>
+        <div>
+          <div class="qs-label">Wake your PC from anywhere</div>
+          <pre><code class="language-bash">python3 scripts/wake-pc 100.x.x.x  # ESP32 Tailscale IP</code></pre>
+          <p style="margin-top:10px; font-size:0.85rem; color:var(--muted);">
+            The ESP32 Tailscale IP is shown at the end of setup and in the Tailscale admin console under the device name <code>esp32-wol</code>.
+          </p>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="text-align:center; margin-top:48px;">
+      <a href="docs.html" class="btn btn-primary">Full documentation →</a>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="footer-inner">
+    <span>esp32-wol — ESP32 Wake-on-LAN via Tailscale</span>
+    <span>
+      Built with <a href="https://github.com/CamM2325/microlink" target="_blank">MicroLink</a>
+      &nbsp;·&nbsp;
+      Licensed under MIT
+      &nbsp;·&nbsp;
+      <a href="docs.html">Docs</a>
+    </span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""
+wake-pc — Wake your PC via the ESP32 Tailscale WoL bridge.
+
+Sends UDP triggers every second until the ESP32 confirms with an ACK ("ok"),
+then exits immediately. Worst-case wait: ~25 s (one full reconnect cycle).
+
+Usage:
+  wake-pc <esp32-tailscale-ip>
+  wake-pc <esp32-tailscale-ip> --port 9999
+  wake-pc <esp32-tailscale-ip> --timeout 30
+
+The ESP32 Tailscale IP is shown in the serial monitor banner after boot,
+and in the Tailscale admin console under the device name "esp32-wol".
+"""
+
+import socket
+import sys
+import time
+import argparse
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Wake PC via ESP32 Tailscale WoL bridge",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+examples:
+  wake-pc 100.126.x.x
+  wake-pc 100.126.x.x --port 9999
+  wake-pc 100.126.x.x --timeout 30
+        """
+    )
+    parser.add_argument(
+        "esp32_ip",
+        help="ESP32 Tailscale VPN IP (shown in serial monitor banner)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=9999,
+        help="UDP listen port configured on ESP32 (default: 9999)"
+    )
+    parser.add_argument(
+        "--timeout", type=int, default=25,
+        help="Max seconds to wait for ACK (default: 25 — one full reconnect cycle)"
+    )
+    args = parser.parse_args()
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(1.0)  # wait up to 1 s for ACK after each send
+
+    print(f"Waking PC via ESP32 ({args.esp32_ip}:{args.port}) ...")
+
+    deadline = time.time() + args.timeout
+    attempt  = 0
+
+    while time.time() < deadline:
+        attempt += 1
+        try:
+            sock.sendto(b"wake", (args.esp32_ip, args.port))
+        except OSError as e:
+            print(f"Send error: {e}", file=sys.stderr)
+            break
+
+        try:
+            data, _ = sock.recvfrom(32)
+            if data.strip() == b"ok":
+                print(f"Done! Magic packet sent (confirmed on attempt {attempt}).")
+                sock.close()
+                sys.exit(0)
+        except socket.timeout:
+            pass  # no ACK yet — try again
+
+    sock.close()
+    print(f"\nTimed out after {args.timeout} s — no ACK received.", file=sys.stderr)
+    print("Possible causes:", file=sys.stderr)
+    print("  • ESP32 not reachable via Tailscale (run: tailscale status)", file=sys.stderr)
+    print(f"  • Wrong IP or port (check serial monitor for actual IP)", file=sys.stderr)
+    print("  • ESP32 still booting (wait ~30 s and retry)", file=sys.stderr)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

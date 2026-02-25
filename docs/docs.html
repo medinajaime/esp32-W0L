@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation — esp32-wol</title>
+  <meta name="description" content="Full documentation for esp32-wol: setup, configuration, architecture, troubleshooting.">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* ── Docs layout ── */
+
+    .docs-wrapper {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      max-width: 1100px;
+      margin: 0 auto;
+      min-height: calc(100vh - 60px);
+    }
+
+    /* Sidebar */
+    .sidebar {
+      position: sticky;
+      top: 60px;
+      height: calc(100vh - 60px);
+      overflow-y: auto;
+      padding: 32px 0 32px 24px;
+      border-right: 1px solid var(--border);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    .sidebar-group { margin-bottom: 28px; }
+    .sidebar-group-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--subtle);
+      padding: 0 12px;
+      margin-bottom: 6px;
+    }
+
+    .sidebar-nav { list-style: none; }
+    .sidebar-nav a {
+      display: block;
+      padding: 6px 12px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      border-radius: 6px;
+      transition: all 0.12s;
+      text-decoration: none;
+      border-left: 2px solid transparent;
+    }
+
+    .sidebar-nav a:hover { color: var(--text); background: var(--surface-2); }
+    .sidebar-nav a.active { color: var(--primary); border-left-color: var(--primary); background: var(--primary-dim); }
+
+    /* Content */
+    .docs-content {
+      padding: 48px 48px 80px;
+      max-width: 780px;
+    }
+
+    .docs-content h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+
+    .docs-content .lead {
+      font-size: 1.05rem;
+      color: var(--muted);
+      margin-bottom: 40px;
+      line-height: 1.7;
+    }
+
+    .docs-content h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin: 56px 0 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      scroll-margin-top: 80px;
+    }
+
+    .docs-content h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin: 32px 0 12px;
+      color: var(--text);
+      scroll-margin-top: 80px;
+    }
+
+    .docs-content p {
+      color: var(--muted);
+      margin-bottom: 16px;
+      line-height: 1.75;
+    }
+
+    .docs-content ul, .docs-content ol {
+      color: var(--muted);
+      margin: 0 0 16px 20px;
+      line-height: 1.75;
+    }
+
+    .docs-content li { margin-bottom: 6px; }
+
+    .docs-content pre { margin: 16px 0 24px; }
+
+    .docs-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px;
+      font-size: 0.875rem;
+    }
+
+    .docs-content th {
+      text-align: left;
+      padding: 10px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .docs-content td {
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      vertical-align: top;
+    }
+
+    .docs-content td code { white-space: nowrap; }
+
+    .callout {
+      border-left: 3px solid var(--primary);
+      background: var(--primary-dim);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 14px 18px;
+      margin: 20px 0;
+      font-size: 0.9rem;
+      color: var(--text);
+    }
+
+    .callout.warning {
+      border-color: var(--amber);
+      background: rgba(251, 191, 36, 0.08);
+    }
+
+    .callout.success {
+      border-color: var(--green);
+      background: var(--green-dim);
+    }
+
+    .callout strong { color: var(--primary); }
+    .callout.warning strong { color: var(--amber); }
+    .callout.success strong { color: var(--green); }
+
+    .state-flow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 16px;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin: 16px 0;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+    }
+
+    .state-box {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 4px 10px;
+      color: var(--muted);
+    }
+
+    .state-box.active { border-color: var(--primary); color: var(--primary); }
+    .state-arrow { color: var(--subtle); }
+
+    /* Mobile */
+    .sidebar-toggle {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 200;
+      background: var(--primary);
+      color: #09090b;
+      border: none;
+      border-radius: 50%;
+      width: 48px; height: 48px;
+      font-size: 1.2rem;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(34,211,238,0.4);
+    }
+
+    @media (max-width: 768px) {
+      .docs-wrapper { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed;
+        left: -260px;
+        top: 60px;
+        width: 240px;
+        height: calc(100vh - 60px);
+        background: var(--bg);
+        border-right: 1px solid var(--border);
+        z-index: 150;
+        transition: left 0.25s;
+        padding: 24px 0 24px 16px;
+      }
+      .sidebar.open { left: 0; }
+      .sidebar-toggle { display: flex; align-items: center; justify-content: center; }
+      .docs-content { padding: 32px 20px 60px; }
+      .docs-content h2 { font-size: 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-logo">
+      <div class="nav-logo-icon">⚡</div>
+      esp32-wol
+    </a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="docs.html" style="color:var(--text)">Docs</a></li>
+      <li><a href="https://github.com/CamM2325/microlink" class="hide-mobile" target="_blank">MicroLink ↗</a></li>
+      <li><a href="#" class="btn-nav">GitHub ↗</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="docs-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Getting Started</div>
+      <ul class="sidebar-nav">
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#quickstart">Quick Start</a></li>
+        <li><a href="#enable-wol-pc">Enable WoL on PC</a></li>
+      </ul>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Configuration</div>
+      <ul class="sidebar-nav">
+        <li><a href="#config-reference">Config Reference</a></li>
+        <li><a href="#tailscale-auth-key">Tailscale Auth Key</a></li>
+      </ul>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Building & Flashing</div>
+      <ul class="sidebar-nav">
+        <li><a href="#setup-script">Setup Script</a></li>
+        <li><a href="#manual-build">Manual Build</a></li>
+        <li><a href="#serial-monitor">Serial Monitor</a></li>
+      </ul>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Triggering WoL</div>
+      <ul class="sidebar-nav">
+        <li><a href="#wake-pc-script">wake-pc script</a></li>
+        <li><a href="#manual-trigger">Manual Trigger</a></li>
+      </ul>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Architecture</div>
+      <ul class="sidebar-nav">
+        <li><a href="#state-machine">State Machine</a></li>
+        <li><a href="#wireguard-derp">WireGuard &amp; DERP</a></li>
+        <li><a href="#magic-packet">Magic Packet</a></li>
+        <li><a href="#memory">Memory Layout</a></li>
+      </ul>
+    </div>
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Reference</div>
+      <ul class="sidebar-nav">
+        <li><a href="#reconnection">Reconnection Behaviour</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+        <li><a href="#limitations">Known Limitations</a></li>
+      </ul>
+    </div>
+  </aside>
+
+  <!-- Content -->
+  <main class="docs-content">
+
+    <h1>Documentation</h1>
+    <p class="lead">
+      Everything you need to build, flash, and use esp32-wol — from first-time setup
+      to understanding the internals.
+    </p>
+
+    <!-- ── Getting Started ───────────────────────────── -->
+
+    <h2 id="prerequisites">Prerequisites</h2>
+
+    <h3>Hardware</h3>
+    <ul>
+      <li><strong>Any ESP32 board</strong> — NodeMCU-32S, HiLetgo ESP-32S, Espressif DevKitC, or equivalent. No PSRAM required.</li>
+      <li><strong>USB cable</strong> — for the initial flash only. After that, just 5 V power.</li>
+      <li><strong>Target PC</strong> — must have an Ethernet NIC with Wake-on-LAN enabled in BIOS and OS. WiFi NICs generally do not support WoL.</li>
+    </ul>
+
+    <h3>Software</h3>
+    <ul>
+      <li><a href="https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/" target="_blank">ESP-IDF v5.5.3</a> — the setup script will check for it and print install instructions if missing.</li>
+      <li><a href="https://tailscale.com/download" target="_blank">Tailscale</a> — installed and logged in on the machine you'll use to send wake commands.</li>
+      <li>A Tailscale account (free tier is fine).</li>
+      <li>Python 3 — for the <code>wake-pc</code> script.</li>
+    </ul>
+
+    <h2 id="quickstart">Quick Start</h2>
+
+    <div class="callout success">
+      <strong>TL;DR:</strong> Clone the repo, run <code>./scripts/setup.sh</code>, then use <code>python3 scripts/wake-pc &lt;ip&gt;</code> to wake your PC.
+    </div>
+
+    <h3>1. Clone the repository</h3>
+    <pre><code class="language-bash">git clone https://github.com/YOUR_USERNAME/wol-esp32
+cd wol-esp32</code></pre>
+
+    <h3>2. Clone MicroLink (required dependency)</h3>
+    <p>MicroLink must be cloned as a <strong>sibling directory</strong> of <code>wol-esp32</code>:</p>
+    <pre><code class="language-bash">cd ..
+git clone https://github.com/CamM2325/microlink
+cd wol-esp32</code></pre>
+
+    <h3>3. Run the setup script</h3>
+    <pre><code class="language-bash">./scripts/setup.sh</code></pre>
+    <p>The script will:</p>
+    <ul>
+      <li>Check that ESP-IDF is installed (and print install instructions if not)</li>
+      <li>Prompt for WiFi SSID and password, Tailscale auth key, target PC MAC address, device name, and serial port</li>
+      <li>Build the firmware and flash it to the connected ESP32</li>
+    </ul>
+
+    <h3>4. Note the Tailscale IP</h3>
+    <p>After flashing, open the serial monitor:</p>
+    <pre><code class="language-bash">. ~/esp/esp-idf/export.sh
+idf.py monitor -p /dev/ttyUSB0</code></pre>
+    <p>Wait for the banner — it shows the ESP32's Tailscale IP:</p>
+    <pre><code>I wol: ╔══════════════════════════════════════════╗
+I wol: ║  ESP32 Wake-on-LAN  —  READY             ║
+I wol: ║  Tailscale IP : 100.126.x.x              ║
+I wol: ║  Listen port  : 9999                     ║
+I wol: ╚══════════════════════════════════════════╝</code></pre>
+
+    <h3>5. Wake your PC</h3>
+    <pre><code class="language-bash">python3 scripts/wake-pc 100.126.x.x</code></pre>
+
+    <!-- ── Enable WoL on PC ──────────────────────────── -->
+
+    <h2 id="enable-wol-pc">Enable WoL on Target PC</h2>
+
+    <h3>BIOS / UEFI</h3>
+    <ol>
+      <li>Enter BIOS setup (usually Delete or F2 at boot)</li>
+      <li>Find <strong>Wake on LAN</strong> — typically under <em>Power Management</em>, <em>Advanced</em>, or <em>Network Boot</em></li>
+      <li>Enable it</li>
+      <li>Disable <strong>ErP / EuP Ready</strong> — this setting cuts standby power to the NIC and will break WoL</li>
+      <li>Save and exit</li>
+    </ol>
+
+    <h3>Windows</h3>
+    <ol>
+      <li>Open <strong>Device Manager</strong> → expand <em>Network Adapters</em></li>
+      <li>Right-click your Ethernet adapter → <strong>Properties</strong></li>
+      <li><strong>Power Management</strong> tab → check <em>Allow this device to wake the computer</em></li>
+      <li><strong>Advanced</strong> tab → find <em>Wake on Magic Packet</em> → set to <em>Enabled</em></li>
+    </ol>
+
+    <h3>Linux</h3>
+    <pre><code class="language-bash"># Check WoL status (g = enabled, d = disabled)
+sudo ethtool eth0 | grep Wake-on
+
+# Enable temporarily (until reboot)
+sudo ethtool -s eth0 wol g
+
+# Persist with systemd-networkd: create /etc/systemd/network/10-wol.link
+[Match]
+MACAddress=10:FF:E0:08:CC:4C
+
+[Link]
+WakeOnLan=magic</code></pre>
+
+    <div class="callout warning">
+      <strong>Important:</strong> WoL only works over <strong>wired Ethernet</strong>. Most wireless NICs do not support Wake-on-LAN magic packets.
+    </div>
+
+    <!-- ── Configuration ─────────────────────────────── -->
+
+    <h2 id="config-reference">Configuration Reference</h2>
+
+    <p>All settings are configured once via <code>idf.py menuconfig</code> or the setup script, then compiled into the firmware. There are no runtime config files to manage.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Setting</th>
+          <th>Default</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>WOL_WIFI_SSID</code></td>
+          <td><em>empty</em></td>
+          <td>SSID of your home WiFi network</td>
+        </tr>
+        <tr>
+          <td><code>WOL_WIFI_PASSWORD</code></td>
+          <td><em>empty</em></td>
+          <td>WiFi password (leave blank for open networks)</td>
+        </tr>
+        <tr>
+          <td><code>WOL_TAILSCALE_AUTH_KEY</code></td>
+          <td><em>placeholder</em></td>
+          <td>Auth key from Tailscale admin console. Use a reusable ephemeral key.</td>
+        </tr>
+        <tr>
+          <td><code>WOL_DEVICE_NAME</code></td>
+          <td><code>esp32-wol</code></td>
+          <td>Name shown in the Tailscale admin console</td>
+        </tr>
+        <tr>
+          <td><code>WOL_TARGET_MAC</code></td>
+          <td><code>AA:BB:CC:DD:EE:FF</code></td>
+          <td>Ethernet MAC of the NIC to wake. Find it with <code>ip link show</code> (Linux) or <code>ipconfig /all</code> (Windows)</td>
+        </tr>
+        <tr>
+          <td><code>WOL_LISTEN_PORT</code></td>
+          <td><code>9999</code></td>
+          <td>UDP port to listen on (over Tailscale). Range 1024–65535.</td>
+        </tr>
+        <tr>
+          <td><code>WOL_BROADCAST_IP</code></td>
+          <td><code>255.255.255.255</code></td>
+          <td>Broadcast address for the magic packet. Use subnet broadcast (e.g. <code>192.168.1.255</code>) if your router blocks global broadcast.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2 id="tailscale-auth-key">Tailscale Auth Key</h2>
+
+    <p>The auth key registers the ESP32 with your Tailscale network. To get one:</p>
+    <ol>
+      <li>Go to <a href="https://login.tailscale.com/admin/settings/keys" target="_blank">tailscale.com/admin/settings/keys</a></li>
+      <li>Click <strong>Generate auth key</strong></li>
+      <li>Check <strong>Reusable</strong> and <strong>Ephemeral</strong></li>
+      <li>Copy the key — it looks like <code>tskey-auth-kXXXXXXX-XXXXXXXXXX</code></li>
+    </ol>
+
+    <div class="callout">
+      <strong>Tip:</strong> Use an <em>ephemeral</em> key so the device is automatically removed from your admin panel if it goes offline for more than a few minutes. This keeps your device list clean.
+    </div>
+
+    <!-- ── Building & Flashing ────────────────────────── -->
+
+    <h2 id="setup-script">Setup Script</h2>
+
+    <p>The setup script (<code>scripts/setup.sh</code>) is the recommended way to configure and flash the firmware for the first time.</p>
+
+    <pre><code class="language-bash">./scripts/setup.sh</code></pre>
+
+    <p>What it does:</p>
+    <ol>
+      <li>Checks for ESP-IDF (looks in <code>~/esp/esp-idf</code>, <code>~/esp-idf</code>, and <code>$IDF_PATH</code>)</li>
+      <li>Sources <code>export.sh</code> to activate the IDF environment</li>
+      <li>Prompts interactively for all required settings (passwords are hidden)</li>
+      <li>Validates the MAC address format</li>
+      <li>Generates a temporary config file and builds with <code>SDKCONFIG_DEFAULTS</code></li>
+      <li>Flashes to the connected ESP32 and optionally opens the serial monitor</li>
+    </ol>
+
+    <div class="callout warning">
+      <strong>Note:</strong> The setup script never writes your credentials to any file that could be committed to git. The temporary config is cleaned up immediately after flashing.
+    </div>
+
+    <h2 id="manual-build">Manual Build</h2>
+
+    <p>If you prefer to configure manually:</p>
+    <pre><code class="language-bash"># 1. Activate ESP-IDF
+. ~/esp/esp-idf/export.sh
+
+# 2. Configure (opens interactive menuconfig)
+idf.py menuconfig
+# Navigate to: Wake-on-LAN Configuration
+
+# 3. Build
+idf.py build
+
+# 4. Flash
+idf.py flash -p /dev/ttyUSB0</code></pre>
+
+    <h2 id="serial-monitor">Serial Monitor</h2>
+
+    <pre><code class="language-bash">idf.py monitor -p /dev/ttyUSB0</code></pre>
+
+    <p>Expected steady-state output (after ~25 s boot):</p>
+    <pre><code>I wol: *** Tailscale CONNECTED ***
+I wol: ╔══════════════════════════════════════════╗
+I wol: ║  ESP32 Wake-on-LAN  —  READY             ║
+I wol: ║  Tailscale IP : 100.126.x.x              ║
+I wol: ║  Listen port  : 9999                     ║
+I wol: ╚══════════════════════════════════════════╝
+I wol: UDP socket ready on Tailscale port 9999</code></pre>
+
+    <!-- ── Triggering WoL ─────────────────────────────── -->
+
+    <h2 id="wake-pc-script">wake-pc Script</h2>
+
+    <p>The <code>scripts/wake-pc</code> script sends triggers every second until the ESP32 confirms receipt with an ACK, then exits immediately.</p>
+
+    <pre><code class="language-bash">python3 scripts/wake-pc &lt;esp32-tailscale-ip&gt;
+
+# With custom port
+python3 scripts/wake-pc 100.126.x.x --port 9999
+
+# Custom timeout (default: 25 s — one full reconnect cycle)
+python3 scripts/wake-pc 100.126.x.x --timeout 30</code></pre>
+
+    <p>Example output:</p>
+    <pre><code>Waking PC via ESP32 (100.126.x.x:9999) ...
+Done! Magic packet sent (confirmed on attempt 7).</code></pre>
+
+    <p>The script uses a single persistent UDP socket (same source port throughout), so when the ESP32 sends back <code>ok</code>, the response is received by the same socket that sent the trigger.</p>
+
+    <h2 id="manual-trigger">Manual Trigger</h2>
+
+    <p>You can also trigger WoL manually with <code>nc</code>:</p>
+    <pre><code class="language-bash"># Single attempt (may need to retry if ESP32 is reconnecting)
+echo wake | nc -u 100.126.x.x 9999 -w1
+
+# Retry loop (reliable — covers a full reconnect cycle)
+for i in $(seq 1 25); do
+  echo wake | nc -u 100.126.x.x 9999 -w1
+  sleep 1
+done</code></pre>
+
+    <div class="callout">
+      <strong>Note:</strong> The manual <code>nc</code> approach doesn't receive the ACK. Use <code>scripts/wake-pc</code> for reliable confirmation.
+    </div>
+
+    <!-- ── Architecture ───────────────────────────────── -->
+
+    <h2 id="state-machine">State Machine</h2>
+
+    <p>MicroLink progresses through these states on boot and after each coordination reconnection:</p>
+
+    <div class="state-flow">
+      <span class="state-box">IDLE</span>
+      <span class="state-arrow">→</span>
+      <span class="state-box">REGISTERING</span>
+      <span class="state-arrow">→</span>
+      <span class="state-box">FETCHING_PEERS</span>
+      <span class="state-arrow">→</span>
+      <span class="state-box">CONFIGURING_WG</span>
+      <span class="state-arrow">→</span>
+      <span class="state-box active">CONNECTED</span>
+      <span class="state-arrow">→</span>
+      <span class="state-box active">MONITORING</span>
+    </div>
+
+    <table>
+      <thead><tr><th>State</th><th>What happens</th></tr></thead>
+      <tbody>
+        <tr><td><code>REGISTERING</code></td><td>TLS 1.2 HTTPS POST to <code>controlplane.tailscale.com</code>. Sends WireGuard public key + auth key. Receives Tailscale VPN IP (100.x.x.x).</td></tr>
+        <tr><td><code>FETCHING_PEERS</code></td><td>HTTP/2 long-poll (<code>/machine/map</code>). Receives peer list as JSON. cJSON parses it — this is the peak memory moment (~16 KB minimum free heap).</td></tr>
+        <tr><td><code>CONFIGURING_WG</code></td><td>Programs wireguard-lwip with each peer's public key and allowed IPs.</td></tr>
+        <tr><td><code>CONNECTED</code></td><td>WireGuard is up. Transitions to MONITORING immediately.</td></tr>
+        <tr><td><code>MONITORING</code></td><td>Steady state. Sends WireGuard keepalives. UDP socket accepts triggers. Transitions back to REGISTERING when the coordination server closes the connection (~10–12 s).</td></tr>
+      </tbody>
+    </table>
+
+    <p>The <strong>WireGuard netif is never torn down</strong> during a normal coordination reconnect — only if the device enters ERROR state. This means the UDP socket stays valid and can receive triggers even during the ~12-second reconnection window.</p>
+
+    <h2 id="wireguard-derp">WireGuard &amp; DERP</h2>
+
+    <h3>WireGuard</h3>
+    <p>MicroLink uses <a href="https://github.com/smartalock/wireguard-lwip" target="_blank">wireguard-lwip</a>, which implements WireGuard as a lwIP network interface (<code>wg0</code>). The handshake uses <strong>Noise_IK_25519_ChaChaPoly_BLAKE2s</strong>:</p>
+    <ul>
+      <li><strong>X25519</strong> — Diffie-Hellman key agreement</li>
+      <li><strong>ChaCha20-Poly1305</strong> — authenticated encryption of all data</li>
+      <li><strong>BLAKE2s</strong> — keyed hash / MAC</li>
+    </ul>
+
+    <h3>DERP relay</h3>
+    <p>When direct UDP between peers is blocked by NAT (the common case for a home ESP32), Tailscale routes traffic through a <strong>DERP</strong> (Designated Encrypted Relay for Packets) server. MicroLink connects to DERP over TLS 1.2 on port 443 — the same as HTTPS — so it passes through almost every firewall.</p>
+
+    <p>DERP is transparent to the application. WireGuard-encrypted packets are wrapped in a DERP frame and relayed. The relay server sees only opaque ciphertext; all traffic is still end-to-end encrypted.</p>
+
+    <h3>Data flow</h3>
+    <pre><code>Your device (any Tailscale peer)
+  │  UDP payload ("wake")
+  │  encrypted by WireGuard (ChaCha20-Poly1305)
+  ▼
+DERP relay server
+  │  Opaque ciphertext — relay can't read it
+  ▼
+ESP32 — wireguard-lwip decrypts the frame
+  │  Plaintext UDP payload delivered to lwIP socket
+  ▼
+wol_task — microlink_udp_recv() returns ESP_OK
+  │  Builds 102-byte magic packet
+  │  Broadcasts to 255.255.255.255:9 via WiFi STA interface
+  ▼
+Target PC NIC — recognises its own MAC × 16 — powers on
+  │
+  ▼
+ESP32 sends ACK ("ok") back to sender via WireGuard/DERP</code></pre>
+
+    <h2 id="magic-packet">Magic Packet</h2>
+
+    <p>A WoL magic packet is exactly <strong>102 bytes</strong>:</p>
+    <pre><code>Bytes 0–5   : FF FF FF FF FF FF          (synchronisation stream)
+Bytes 6–101 : &lt;target MAC&gt; × 16          (MAC repeated 16 times)</code></pre>
+
+    <p>The magic packet is sent as a plain UDP broadcast (<strong>not</strong> through WireGuard) — it uses a separate BSD socket bound to the WiFi STA interface. This is critical: without binding to the WiFi interface, lwIP might try to route the broadcast through the WireGuard tunnel, where it would be dropped (WireGuard has no concept of broadcasts).</p>
+
+    <h2 id="memory">Memory Layout</h2>
+
+    <p>The NodeMCU-32S has <strong>520 KB SRAM</strong> and no PSRAM. Running a full TLS + WireGuard + cJSON stack in this space requires careful tuning.</p>
+
+    <table>
+      <thead><tr><th>Allocation</th><th>Size (approx)</th></tr></thead>
+      <tbody>
+        <tr><td>WiFi driver (static RX/TX buffers)</td><td>~48 KB</td></tr>
+        <tr><td>mbedTLS handshake + buffers (dynamic)</td><td>~40 KB</td></tr>
+        <tr><td>MicroLink state + peer table</td><td>~20 KB</td></tr>
+        <tr><td>WireGuard session state</td><td>~16 KB</td></tr>
+        <tr><td>FreeRTOS task stacks</td><td>~20 KB</td></tr>
+        <tr><td>lwIP buffers</td><td>~16 KB</td></tr>
+        <tr><td>cJSON MapResponse parse (peak, freed after)</td><td>~32 KB</td></tr>
+        <tr><td><strong>Free at steady state</strong></td><td><strong>~16 KB</strong></td></tr>
+      </tbody>
+    </table>
+
+    <p>Key tunings in <code>sdkconfig.defaults</code>:</p>
+    <ul>
+      <li><code>CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096</code> — reduced from default 16 KB</li>
+      <li><code>CONFIG_MBEDTLS_DYNAMIC_BUFFER=y</code> — TLS buffers freed after handshake</li>
+      <li><code>CONFIG_MICROLINK_COORD_BUFFER_SIZE_KB=16</code> — limits peak JSON parse allocation</li>
+      <li><code>CONFIG_MICROLINK_MAX_PEERS=4</code> — caps per-peer heap</li>
+      <li><code>CONFIG_COMPILER_OPTIMIZATION_SIZE=y</code> — <code>-Os</code> reduces binary size</li>
+    </ul>
+
+    <!-- ── Reconnection ────────────────────────────────── -->
+
+    <h2 id="reconnection">Reconnection Behaviour</h2>
+
+    <p>The Tailscale coordination server closes the HTTP/2 long-poll connection every 10–12 seconds. This is normal. When it happens:</p>
+    <ol>
+      <li>MicroLink transitions <code>MONITORING → REGISTERING</code></li>
+      <li>Re-registers and re-fetches the peer list (~12 s total)</li>
+      <li>Returns to <code>MONITORING</code></li>
+    </ol>
+
+    <p>During this window:</p>
+    <ul>
+      <li>The UDP socket is <strong>kept alive</strong> — the WireGuard netif is not torn down</li>
+      <li>Triggers received during reconnection are still processed</li>
+      <li>When coordination comes back up, the socket is refreshed (new WireGuard handshakes + CallMeMaybe to all peers)</li>
+    </ul>
+
+    <p>The <code>wake-pc</code> script's 25-second retry window is designed to cover one full reconnect cycle, guaranteeing delivery.</p>
+
+    <!-- ── Troubleshooting ────────────────────────────── -->
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+
+    <h3>ESP32 crashes on boot (heap overflow)</h3>
+    <p>Reduce the coordination buffer. In <code>sdkconfig.defaults</code>:</p>
+    <pre><code>CONFIG_MICROLINK_COORD_BUFFER_SIZE_KB=12</code></pre>
+    <p>Then delete <code>sdkconfig</code> and rebuild.</p>
+
+    <h3>Device doesn't appear in Tailscale admin console</h3>
+    <ul>
+      <li>Check that the auth key is valid and not expired</li>
+      <li>Verify WiFi credentials — the serial monitor will show <code>WiFi retry N/20</code> if connection fails</li>
+      <li>Make sure the auth key is for the correct Tailscale account</li>
+    </ul>
+
+    <h3>wake-pc times out (no ACK received)</h3>
+    <ul>
+      <li>Check that both your PC and the ESP32 are on the same Tailscale network (<code>tailscale status</code>)</li>
+      <li>Verify the ESP32 Tailscale IP — it's shown in the serial monitor banner</li>
+      <li>Try <code>tailscale ping 100.126.x.x</code> to confirm reachability</li>
+      <li>Check the serial monitor for <code>Trigger from</code> and <code>Magic packet sent</code> messages</li>
+    </ul>
+
+    <h3>PC doesn't wake despite "Magic packet sent"</h3>
+    <ul>
+      <li>Verify WoL is enabled in BIOS (see <a href="#enable-wol-pc">Enable WoL</a>)</li>
+      <li>Check that <strong>ErP/EuP Ready</strong> is <strong>disabled</strong> in BIOS</li>
+      <li>Verify the target MAC address in config matches the Ethernet NIC (<em>not</em> WiFi)</li>
+      <li>On Linux, confirm <code>ethtool eth0 | grep Wake-on</code> shows <code>g</code></li>
+      <li>If your router uses VLANs, change <code>WOL_BROADCAST_IP</code> to the subnet broadcast (e.g. <code>192.168.1.255</code>)</li>
+    </ul>
+
+    <h3>DISCO socket errors in serial output</h3>
+    <pre><code>E ml_disco: disco_send_udp4: socket not initialized!</code></pre>
+    <p>This is non-fatal. DISCO is used for direct UDP path optimisation (bypassing the DERP relay). If it fails, MicroLink falls back to DERP, which works reliably for WoL purposes. You can ignore these messages.</p>
+
+    <!-- ── Limitations ────────────────────────────────── -->
+
+    <h2 id="limitations">Known Limitations</h2>
+
+    <table>
+      <thead><tr><th>Limitation</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>WoL requires Ethernet</td>
+          <td>The target PC must be connected via wired Ethernet. WiFi NICs do not support WoL magic packets.</td>
+        </tr>
+        <tr>
+          <td>Single target MAC</td>
+          <td>The firmware wakes one pre-configured PC. Supporting multiple targets would require the trigger payload to encode the MAC — a small firmware change.</td>
+        </tr>
+        <tr>
+          <td>No trigger authentication</td>
+          <td>Any device on your Tailscale network can trigger a wake. Use Tailscale ACL rules to restrict access if needed.</td>
+        </tr>
+        <tr>
+          <td>Coordination reconnects every ~12 s</td>
+          <td>The Tailscale coordination server closes the long-poll HTTP/2 connection frequently. This is a server-side behaviour; the device handles it gracefully.</td>
+        </tr>
+        <tr>
+          <td>No PSRAM support</td>
+          <td>All heap usage must fit in 520 KB SRAM. The firmware runs close to the edge — avoid adding memory-heavy features.</td>
+        </tr>
+      </tbody>
+    </table>
+
+  </main>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="footer-inner">
+    <span>esp32-wol documentation</span>
+    <span>
+      <a href="index.html">Home</a>
+      &nbsp;·&nbsp;
+      <a href="https://github.com/CamM2325/microlink" target="_blank">MicroLink</a>
+      &nbsp;·&nbsp;
+      MIT License
+    </span>
+  </div>
+</footer>
+
+<button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">☰</button>
+
+<script>
+  // Sidebar toggle for mobile
+  const sidebar = document.getElementById('sidebar');
+  const toggle  = document.getElementById('sidebarToggle');
+  toggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+
+  // Scroll spy — highlight active sidebar link
+  const sections = document.querySelectorAll('.docs-content h2[id], .docs-content h3[id]');
+  const navLinks  = document.querySelectorAll('.sidebar-nav a');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + entry.target.id);
+        });
+      }
+    });
+  }, { rootMargin: '-60px 0px -70% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>
