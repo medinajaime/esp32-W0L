@@ -1,5 +1,5 @@
 /**
- * @file microlink_coordination.c
+ * @file ts_coordination.c
  * @brief Tailscale coordination client with ts2021 Noise protocol
  *
  * Implements:
@@ -10,7 +10,7 @@
  * - Heartbeat and status updates
  */
 
-#include "microlink_internal.h"
+#include "ts_internal.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_system.h"
@@ -42,7 +42,7 @@
 #include "blake2s.h"
 #include "nacl_box.h"  // For NodeKeyChallengeResponse (NaCl crypto_box)
 
-static const char *TAG = "ml_coord";
+static const char *TAG = "ts_coord";
 
 // Track skipped server frames for nonce adjustment
 static int g_skipped_server_frames = 0;
@@ -56,9 +56,9 @@ static uint8_t g_node_key_challenge[32] = {0};
 static bool g_has_node_key_challenge = false;
 
 // Tailscale control plane (configurable for Headscale/Ionscale via Kconfig)
-#ifdef CONFIG_MICROLINK_CUSTOM_COORD_SERVER
-#define TAILSCALE_CONTROL_HOST CONFIG_MICROLINK_COORD_HOST
-#define TAILSCALE_CONTROL_PORT CONFIG_MICROLINK_COORD_PORT
+#ifdef CONFIG_TS_CUSTOM_COORD_SERVER
+#define TAILSCALE_CONTROL_HOST CONFIG_TS_COORD_HOST
+#define TAILSCALE_CONTROL_PORT CONFIG_TS_COORD_PORT
 #else
 #define TAILSCALE_CONTROL_HOST "controlplane.tailscale.com"
 #define TAILSCALE_CONTROL_PORT 443
@@ -783,14 +783,14 @@ static const uint8_t *get_server_public_key(void) {
  * ========================================================================== */
 
 /* NVS keys for machine key persistence */
-#define NVS_NAMESPACE       "microlink"
+#define NVS_NAMESPACE       "tailscale"
 #define NVS_KEY_MACHINE_PRI "machine_pri"
 #define NVS_KEY_MACHINE_PUB "machine_pub"
 
 /**
  * @brief Load machine key from NVS, or generate new one if not found
  */
-static esp_err_t load_or_generate_machine_key(microlink_t *ml) {
+static esp_err_t load_or_generate_machine_key(ts_t *ml) {
     nvs_handle_t nvs;
     esp_err_t ret;
     bool need_save = false;
@@ -850,10 +850,10 @@ generate_new:
     return ESP_OK;
 }
 
-esp_err_t microlink_coordination_init(microlink_t *ml) {
+esp_err_t ts_coordination_init(ts_t *ml) {
     ESP_LOGI(TAG, "Initializing coordination client");
 
-    memset(&ml->coordination, 0, sizeof(microlink_coordination_t));
+    memset(&ml->coordination, 0, sizeof(ts_coordination_t));
     ml->coordination.socket = -1;  // Invalid socket initially
 
     // === Dual-Core PSRAM Fix: Initialize synchronization primitives ===
@@ -865,10 +865,10 @@ esp_err_t microlink_coordination_init(microlink_t *ml) {
 
     // Allocate 64KB buffer from PSRAM for large MapResponses
     // This is the key fix - using external PSRAM instead of limited SRAM
-    ml->coordination.psram_buffer = heap_caps_malloc(MICROLINK_COORD_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
+    ml->coordination.psram_buffer = heap_caps_malloc(TS_COORD_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
     if (ml->coordination.psram_buffer == NULL) {
         ESP_LOGW(TAG, "PSRAM allocation failed, falling back to regular heap");
-        ml->coordination.psram_buffer = malloc(MICROLINK_COORD_BUFFER_SIZE);
+        ml->coordination.psram_buffer = malloc(TS_COORD_BUFFER_SIZE);
         if (ml->coordination.psram_buffer == NULL) {
             ESP_LOGE(TAG, "Failed to allocate coordination buffer");
             vSemaphoreDelete(ml->coordination.mutex);
@@ -876,7 +876,7 @@ esp_err_t microlink_coordination_init(microlink_t *ml) {
             return ESP_ERR_NO_MEM;
         }
     } else {
-        ESP_LOGI(TAG, "Allocated %d bytes from PSRAM for coordination buffer", MICROLINK_COORD_BUFFER_SIZE);
+        ESP_LOGI(TAG, "Allocated %d bytes from PSRAM for coordination buffer", TS_COORD_BUFFER_SIZE);
     }
 
     ml->coordination.poll_task_handle = NULL;
@@ -902,11 +902,11 @@ esp_err_t microlink_coordination_init(microlink_t *ml) {
     return ESP_OK;
 }
 
-esp_err_t microlink_coordination_deinit(microlink_t *ml) {
+esp_err_t ts_coordination_deinit(ts_t *ml) {
     ESP_LOGI(TAG, "Deinitializing coordination client");
 
     // Stop the poll task first if running
-    microlink_coordination_stop_poll_task(ml);
+    ts_coordination_stop_poll_task(ml);
 
     // Free PSRAM buffer
     if (ml->coordination.psram_buffer != NULL) {
@@ -926,13 +926,13 @@ esp_err_t microlink_coordination_deinit(microlink_t *ml) {
         ml->coordination.socket = -1;
     }
 
-    memset(&ml->coordination, 0, sizeof(microlink_coordination_t));
+    memset(&ml->coordination, 0, sizeof(ts_coordination_t));
     ml->coordination.socket = -1;
 
     return ESP_OK;
 }
 
-esp_err_t microlink_coordination_register(microlink_t *ml) {
+esp_err_t ts_coordination_register(ts_t *ml) {
     ESP_LOGI(TAG, "Registering device with Tailscale");
     ESP_LOGI(TAG, "Device: %s, Auth key: %s",
              ml->config.device_name,
@@ -2437,7 +2437,7 @@ esp_err_t microlink_coordination_register(microlink_t *ml) {
              (unsigned long)ml->coordination.next_stream_id);
 
     // NOTE: VPN IP comes from MapResponse, not RegisterResponse
-    // The state machine will call microlink_coordination_fetch_peers() next
+    // The state machine will call ts_coordination_fetch_peers() next
     // which should send a MapRequest to /machine/map
 
     ret = ESP_OK;  // Registration success!
@@ -2460,7 +2460,7 @@ cleanup:
     return ret;
 }
 
-esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
+esp_err_t ts_coordination_fetch_peers(ts_t *ml) {
     ESP_LOGI(TAG, "Fetching peer list via MapRequest");
 
     // Check if we have a valid socket from registration
@@ -2557,11 +2557,11 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
     // PreferredDERP tells the control plane which DERP server we're using
     // This is CRITICAL - without it, other peers don't know how to reach us via DERP!
     cJSON *netinfo = cJSON_CreateObject();
-    cJSON_AddNumberToObject(netinfo, "PreferredDERP", MICROLINK_DERP_REGION);  // Must match DERP server!
+    cJSON_AddNumberToObject(netinfo, "PreferredDERP", TS_DERP_REGION);  // Must match DERP server!
     cJSON_AddBoolToObject(netinfo, "WorkingUDP", true);     // We support UDP
     cJSON_AddBoolToObject(netinfo, "WorkingIPv6", false);   // ESP32 doesn't have IPv6 here
     cJSON_AddItemToObject(hostinfo, "NetInfo", netinfo);
-    ESP_LOGI(TAG, "NetInfo.PreferredDERP: %d (Dallas)", MICROLINK_DERP_REGION);
+    ESP_LOGI(TAG, "NetInfo.PreferredDERP: %d (Dallas)", TS_DERP_REGION);
 
     cJSON_AddItemToObject(map_req, "Hostinfo", hostinfo);
 
@@ -3067,7 +3067,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
         }
         free(json_buffer);
         free(h2_buffer);
-        ml->coordination.last_map_poll_ms = microlink_get_time_ms();
+        ml->coordination.last_map_poll_ms = ts_get_time_ms();
         return ESP_OK;
     }
 
@@ -3113,12 +3113,12 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
         ESP_LOGW(TAG, "Response is zstd compressed - decompression not yet implemented");
         ESP_LOGW(TAG, "TODO: Add 'compress: false' to MapRequest or implement zstd");
         free(json_buffer);
-        ml->coordination.last_map_poll_ms = microlink_get_time_ms();
+        ml->coordination.last_map_poll_ms = ts_get_time_ms();
         return ESP_OK;
     } else if (is_gzip) {
         ESP_LOGW(TAG, "Response is gzip compressed - not supported");
         free(json_buffer);
-        ml->coordination.last_map_poll_ms = microlink_get_time_ms();
+        ml->coordination.last_map_poll_ms = ts_get_time_ms();
         return ESP_OK;
     } else if (is_length_prefixed) {
         // Tailscale binary framing: 4-byte length prefix followed by JSON
@@ -3196,7 +3196,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
                     ESP_LOGI(TAG, "*** VPN IP assigned: %s ***", addr->valuestring);
 
                     // Update WireGuard interface
-                    microlink_wireguard_set_vpn_ip(ml, ml->vpn_ip);
+                    ts_wireguard_set_vpn_ip(ml, ml->vpn_ip);
                 }
             }
         }
@@ -3205,7 +3205,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
     // ========================================================================
     // Parse DERPMap for dynamic DERP region discovery (optional feature)
     // ========================================================================
-    // When MICROLINK_DERP_DYNAMIC_DISCOVERY is enabled, parse available DERP
+    // When TS_DERP_DYNAMIC_DISCOVERY is enabled, parse available DERP
     // regions from the MapResponse. This handles cases where the tailnet has
     // custom derpMap configurations that disable certain regions.
     //
@@ -3217,7 +3217,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
     //   }
     // }
     // Regions set to null in derpMap are omitted from this response.
-#ifdef CONFIG_MICROLINK_DERP_DYNAMIC_DISCOVERY
+#ifdef CONFIG_TS_DERP_DYNAMIC_DISCOVERY
     if (ml->derp.dynamic_discovery_enabled) {
         cJSON *derp_map = cJSON_GetObjectItem(root, "DERPMap");
         if (derp_map) {
@@ -3227,9 +3227,9 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
 
                 cJSON *region = NULL;
                 cJSON_ArrayForEach(region, regions) {
-                    if (ml->derp.region_count >= MICROLINK_MAX_DERP_REGIONS) {
+                    if (ml->derp.region_count >= TS_MAX_DERP_REGIONS) {
                         ESP_LOGW(TAG, "DERPMap: Max regions (%d) reached, ignoring rest",
-                                 MICROLINK_MAX_DERP_REGIONS);
+                                 TS_MAX_DERP_REGIONS);
                         break;
                     }
 
@@ -3249,7 +3249,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
                     if (!hostname || !cJSON_IsString(hostname)) continue;
 
                     // Store this region
-                    microlink_derp_region_t *r = &ml->derp.regions[ml->derp.region_count];
+                    ts_derp_region_t *r = &ml->derp.regions[ml->derp.region_count];
                     r->region_id = (uint16_t)region_id->valueint;
                     strncpy(r->hostname, hostname->valuestring, sizeof(r->hostname) - 1);
                     r->hostname[sizeof(r->hostname) - 1] = '\0';
@@ -3278,7 +3278,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
             ESP_LOGD(TAG, "DERPMap: Not present in MapResponse (using hardcoded DERP)");
         }
     }
-#endif  // CONFIG_MICROLINK_DERP_DYNAMIC_DISCOVERY
+#endif  // CONFIG_TS_DERP_DYNAMIC_DISCOVERY
 
     // Extract peers from MapResponse
     // Tailscale uses different field names depending on the response type:
@@ -3311,17 +3311,17 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
         memset(ml->peers, 0, sizeof(ml->peers));
         memset(ml->peer_map, 0xFF, sizeof(ml->peer_map));  // 0xFF = invalid index
 
-        // Parse each peer (up to MICROLINK_MAX_PEERS)
+        // Parse each peer (up to TS_MAX_PEERS)
         int added_peers = 0;
         cJSON *peer_json = NULL;
         cJSON_ArrayForEach(peer_json, peers_json) {
-            if (added_peers >= MICROLINK_MAX_PEERS) {
-                ESP_LOGW(TAG, "Max peers reached (%d), skipping remaining", MICROLINK_MAX_PEERS);
+            if (added_peers >= TS_MAX_PEERS) {
+                ESP_LOGW(TAG, "Max peers reached (%d), skipping remaining", TS_MAX_PEERS);
                 break;
             }
 
-            microlink_peer_t *peer = &ml->peers[added_peers];
-            memset(peer, 0, sizeof(microlink_peer_t));
+            ts_peer_t *peer = &ml->peers[added_peers];
+            memset(peer, 0, sizeof(ts_peer_t));
 
             // Extract Node ID
             cJSON *id = cJSON_GetObjectItem(peer_json, "ID");
@@ -3395,7 +3395,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
                 cJSON *ep = NULL;
                 int ep_idx = 0;
                 cJSON_ArrayForEach(ep, endpoints) {
-                    if (ep_idx >= MICROLINK_MAX_ENDPOINTS) break;
+                    if (ep_idx >= TS_MAX_ENDPOINTS) break;
                     if (cJSON_IsString(ep)) {
                         unsigned int ea, eb, ec, ed, eport;
                         if (sscanf(ep->valuestring, "%u.%u.%u.%u:%u", &ea, &eb, &ec, &ed, &eport) == 5) {
@@ -3445,7 +3445,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
     }
 
     cJSON_Delete(root);
-    ml->coordination.last_map_poll_ms = microlink_get_time_ms();
+    ml->coordination.last_map_poll_ms = ts_get_time_ms();
 
     // ========================================================================
     // STEP 2: Send Stream=true MapRequest to start long-poll mode
@@ -3611,7 +3611,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
                                               NULL, 0, ping_frame, sizeof(ping_frame), ping_buf + 3) == ESP_OK) {
                                 int ping_sent = send(ml->coordination.socket, ping_buf, 3 + ping_enc_len, 0);
                                 ESP_LOGI(TAG, "Sent initial HTTP/2 PING after long-poll (sent=%d)", ping_sent);
-                                ml->coordination.last_ping_ms = microlink_get_time_ms();  // Sync with poll_updates
+                                ml->coordination.last_ping_ms = ts_get_time_ms();  // Sync with poll_updates
                                 // NOTE: Don't try to read PONG here - let poll_updates handle it
                                 // Reading here would desync rx_nonce and cause frame misalignment
                             }
@@ -3621,7 +3621,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
                         // === Start the poll task NOW, immediately after long-poll is established ===
                         // This is critical: we must start polling BEFORE any server responses arrive
                         // to avoid nonce desync. The poll task will handle all incoming data from here.
-                        esp_err_t poll_ret = microlink_coordination_start_poll_task(ml);
+                        esp_err_t poll_ret = ts_coordination_start_poll_task(ml);
                         if (poll_ret != ESP_OK) {
                             ESP_LOGW(TAG, "Failed to start coordination poll task: %d", poll_ret);
                             // Continue anyway - we'll fall back to single-core mode
@@ -3640,7 +3640,7 @@ esp_err_t microlink_coordination_fetch_peers(microlink_t *ml) {
     return ESP_OK;
 }
 
-esp_err_t microlink_coordination_heartbeat(microlink_t *ml) {
+esp_err_t ts_coordination_heartbeat(ts_t *ml) {
     // Check if we have an active Noise session
     if (!ml->coordination.handshake_complete || ml->coordination.socket < 0) {
         ESP_LOGW(TAG, "No active session for heartbeat, need re-registration");
@@ -3672,7 +3672,7 @@ esp_err_t microlink_coordination_heartbeat(microlink_t *ml) {
     // Since STUN discovery isn't working yet, skip the heartbeat to keep the connection alive.
     if (ml->stun.public_ip == 0 || ml->stun.public_port == 0) {
         ESP_LOGI(TAG, "Heartbeat skipped: no STUN endpoints to advertise (long-poll maintains online status)");
-        ml->coordination.last_heartbeat_ms = microlink_get_time_ms();
+        ml->coordination.last_heartbeat_ms = ts_get_time_ms();
         return ESP_OK;
     }
 
@@ -3717,7 +3717,7 @@ esp_err_t microlink_coordination_heartbeat(microlink_t *ml) {
 
     // NetInfo with PreferredDERP - CRITICAL for DERP routing!
     cJSON *netinfo = cJSON_CreateObject();
-    cJSON_AddNumberToObject(netinfo, "PreferredDERP", MICROLINK_DERP_REGION);  // Must match DERP server!
+    cJSON_AddNumberToObject(netinfo, "PreferredDERP", TS_DERP_REGION);  // Must match DERP server!
     cJSON_AddBoolToObject(netinfo, "WorkingUDP", true);
     cJSON_AddBoolToObject(netinfo, "WorkingIPv6", false);
     cJSON_AddItemToObject(hostinfo, "NetInfo", netinfo);
@@ -3893,7 +3893,7 @@ esp_err_t microlink_coordination_heartbeat(microlink_t *ml) {
     }
 
     ESP_LOGI(TAG, "Heartbeat sent successfully on stream %lu", (unsigned long)stream_id);
-    ml->coordination.last_heartbeat_ms = microlink_get_time_ms();
+    ml->coordination.last_heartbeat_ms = ts_get_time_ms();
     return ESP_OK;
 }
 
@@ -3905,7 +3905,7 @@ esp_err_t microlink_coordination_heartbeat(microlink_t *ml) {
  * - Server returns NeedMachineAuth
  * - Connection is lost and needs re-establishment
  */
-esp_err_t microlink_coordination_handle_key_rotation(microlink_t *ml) {
+esp_err_t ts_coordination_handle_key_rotation(ts_t *ml) {
     ESP_LOGI(TAG, "Handling key rotation / re-registration");
 
     // Step 1: Close existing connections
@@ -3936,7 +3936,7 @@ esp_err_t microlink_coordination_handle_key_rotation(microlink_t *ml) {
  *
  * Call this periodically to maintain connection health
  */
-esp_err_t microlink_coordination_check_session(microlink_t *ml) {
+esp_err_t ts_coordination_check_session(ts_t *ml) {
     // Check socket validity
     if (ml->coordination.socket < 0) {
         ESP_LOGW(TAG, "Socket invalid, need reconnection");
@@ -3964,7 +3964,7 @@ esp_err_t microlink_coordination_check_session(microlink_t *ml) {
  *
  * This is critical for maintaining "online" status in Tailscale.
  */
-esp_err_t microlink_coordination_poll_updates(microlink_t *ml) {
+esp_err_t ts_coordination_poll_updates(ts_t *ml) {
     if (!ml->coordination.handshake_complete || ml->coordination.socket < 0) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -3975,7 +3975,7 @@ esp_err_t microlink_coordination_poll_updates(microlink_t *ml) {
     // Send HTTP/2 PING every 5 seconds to keep the connection alive
     // The Tailscale server appears to have a ~20 second idle timeout, but
     // we need frequent pings to ensure bidirectional activity
-    uint64_t now = microlink_get_time_ms();
+    uint64_t now = ts_get_time_ms();
     if (ml->coordination.last_ping_ms == 0 || (now - ml->coordination.last_ping_ms) >= 5000) {
         // Build HTTP/2 PING frame (opaque 8-byte payload)
         uint8_t ping_frame[17];
@@ -4431,7 +4431,7 @@ cleanup:
     if (total_frames_processed > 0) {
         ESP_LOGI(TAG, "Long-poll: processed %d Noise frames (drain iterations=%d)",
                  total_frames_processed, drain_iterations);
-        ml->coordination.last_heartbeat_ms = microlink_get_time_ms();
+        ml->coordination.last_heartbeat_ms = ts_get_time_ms();
     }
 
     return ret;
@@ -4443,7 +4443,7 @@ cleanup:
  * WARNING: This will change the device identity and require re-authorization
  * in the Tailscale admin console.
  */
-esp_err_t microlink_coordination_regenerate_machine_key(microlink_t *ml) {
+esp_err_t ts_coordination_regenerate_machine_key(ts_t *ml) {
     ESP_LOGW(TAG, "Regenerating machine key - device will need re-authorization!");
 
     // Clear existing key from NVS
@@ -4505,7 +4505,7 @@ esp_err_t microlink_coordination_regenerate_machine_key(microlink_t *ml) {
 /**
  * @brief Factory reset - erase ALL stored keys and credentials
  *
- * This function erases the entire "microlink" NVS namespace, clearing:
+ * This function erases the entire "tailscale" NVS namespace, clearing:
  * - Machine keys (ts2021 Noise protocol)
  * - WireGuard keys
  * - DISCO keys
@@ -4513,19 +4513,19 @@ esp_err_t microlink_coordination_regenerate_machine_key(microlink_t *ml) {
  * After calling this function, the device will generate new keys and
  * need to be re-authorized in the Tailscale admin console.
  *
- * Call this BEFORE microlink_init() on boot.
+ * Call this BEFORE ts_init() on boot.
  */
-esp_err_t microlink_factory_reset(void) {
-    ESP_LOGW(TAG, "=== MICROLINK FACTORY RESET ===");
+esp_err_t ts_factory_reset(void) {
+    ESP_LOGW(TAG, "=== TAILSCALE FACTORY RESET ===");
     ESP_LOGW(TAG, "Erasing ALL stored keys - device will need re-authorization!");
 
     nvs_handle_t nvs;
-    esp_err_t ret = nvs_open("microlink", NVS_READWRITE, &nvs);
+    esp_err_t ret = nvs_open("tailscale", NVS_READWRITE, &nvs);
     if (ret == ESP_OK) {
         ret = nvs_erase_all(nvs);
         if (ret == ESP_OK) {
             ret = nvs_commit(nvs);
-            ESP_LOGI(TAG, "Successfully erased all microlink NVS data");
+            ESP_LOGI(TAG, "Successfully erased all tailscale NVS data");
         } else {
             ESP_LOGE(TAG, "Failed to erase NVS: %s", esp_err_to_name(ret));
         }
@@ -4581,10 +4581,10 @@ static esp_err_t noise_encrypt(const uint8_t *key, uint64_t nonce,
  * This task runs at highest priority and polls the coordination socket
  * continuously, preventing TCP buffer overflow and server timeouts.
  *
- * @param pvParameters Pointer to microlink_t context
+ * @param pvParameters Pointer to ts_t context
  */
 static void coordination_poll_task(void *pvParameters) {
-    microlink_t *ml = (microlink_t *)pvParameters;
+    ts_t *ml = (ts_t *)pvParameters;
     ESP_LOGI(TAG, "Coordination poll task started on Core %d, rx_nonce=%lu, tx_nonce=%lu",
              xPortGetCoreID(), (unsigned long)ml->coordination.rx_nonce,
              (unsigned long)ml->coordination.tx_nonce);
@@ -4597,11 +4597,11 @@ static void coordination_poll_task(void *pvParameters) {
     // Persistent buffer state for handling partial frames across recv() calls
     // We use a dedicated portion of PSRAM buffer for the receive stream
     const size_t RECV_BUFFER_OFFSET = 1024;  // Start recv buffer at offset 1024
-    const size_t RECV_BUFFER_SIZE = MICROLINK_COORD_BUFFER_SIZE - RECV_BUFFER_OFFSET - 256;  // Leave room for temp buffers
+    const size_t RECV_BUFFER_SIZE = TS_COORD_BUFFER_SIZE - RECV_BUFFER_OFFSET - 256;  // Leave room for temp buffers
     size_t buffer_len = 0;  // Amount of valid data in buffer
 
     while (ml->coordination.poll_task_running) {
-        uint64_t now_ms = microlink_get_time_ms();
+        uint64_t now_ms = ts_get_time_ms();
 
         // Check if we have a valid socket and handshake is complete
         if (!ml->coordination.handshake_complete || ml->coordination.socket < 0) {
@@ -4623,7 +4623,7 @@ static void coordination_poll_task(void *pvParameters) {
         }
 
         // Send HTTP/2 PING periodically to keep connection alive
-        if (now_ms - last_ping_ms >= MICROLINK_COORD_PING_INTERVAL_MS) {
+        if (now_ms - last_ping_ms >= TS_COORD_PING_INTERVAL_MS) {
             uint8_t ping_frame[17];
             ping_frame[0] = 0x00;  // Length high
             ping_frame[1] = 0x00;  // Length mid
@@ -4840,7 +4840,7 @@ static void coordination_poll_task(void *pvParameters) {
         }
 
         // Short delay to prevent CPU hogging (100Hz polling)
-        vTaskDelay(pdMS_TO_TICKS(MICROLINK_COORD_POLL_INTERVAL_MS));
+        vTaskDelay(pdMS_TO_TICKS(TS_COORD_POLL_INTERVAL_MS));
     }
 
     ESP_LOGI(TAG, "Coordination poll task exiting");
@@ -4858,10 +4858,10 @@ static void coordination_poll_task(void *pvParameters) {
  * This should be called after the coordination handshake is complete
  * and the long-poll MapRequest has been sent.
  *
- * @param ml MicroLink context
+ * @param ml Tailscale context
  * @return ESP_OK on success
  */
-esp_err_t microlink_coordination_start_poll_task(microlink_t *ml) {
+esp_err_t ts_coordination_start_poll_task(ts_t *ml) {
     if (ml->coordination.poll_task_handle != NULL) {
         ESP_LOGW(TAG, "Poll task already running");
         return ESP_OK;
@@ -4885,11 +4885,11 @@ esp_err_t microlink_coordination_start_poll_task(microlink_t *ml) {
     BaseType_t ret = xTaskCreatePinnedToCore(
         coordination_poll_task,
         "coord_poll",
-        MICROLINK_COORD_TASK_STACK,
+        TS_COORD_TASK_STACK,
         ml,
-        MICROLINK_COORD_TASK_PRIORITY,
+        TS_COORD_TASK_PRIORITY,
         &ml->coordination.poll_task_handle,
-        MICROLINK_COORDINATION_CORE
+        TS_COORDINATION_CORE
     );
 
     if (ret != pdPASS) {
@@ -4899,7 +4899,7 @@ esp_err_t microlink_coordination_start_poll_task(microlink_t *ml) {
     }
 
     ESP_LOGI(TAG, "Started coordination poll task on Core %d (priority %d)",
-             MICROLINK_COORDINATION_CORE, MICROLINK_COORD_TASK_PRIORITY);
+             TS_COORDINATION_CORE, TS_COORD_TASK_PRIORITY);
 
     return ESP_OK;
 }
@@ -4907,10 +4907,10 @@ esp_err_t microlink_coordination_start_poll_task(microlink_t *ml) {
 /**
  * @brief Stop the coordination polling task
  *
- * @param ml MicroLink context
+ * @param ml Tailscale context
  * @return ESP_OK on success
  */
-esp_err_t microlink_coordination_stop_poll_task(microlink_t *ml) {
+esp_err_t ts_coordination_stop_poll_task(ts_t *ml) {
     if (ml->coordination.poll_task_handle == NULL && !ml->coordination.poll_task_running) {
         return ESP_OK;  // Already stopped
     }
@@ -4947,10 +4947,10 @@ esp_err_t microlink_coordination_stop_poll_task(microlink_t *ml) {
  * The main state machine should call this periodically and handle
  * reconnection if an error is detected.
  *
- * @param ml MicroLink context
+ * @param ml Tailscale context
  * @return true if error detected, false otherwise
  */
-bool microlink_coordination_check_error(microlink_t *ml) {
+bool ts_coordination_check_error(ts_t *ml) {
     bool error = ml->coordination.connection_error;
     if (error) {
         // Clear the flag so it doesn't trigger repeatedly

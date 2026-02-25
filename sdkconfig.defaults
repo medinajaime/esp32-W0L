@@ -1,5 +1,5 @@
 # sdkconfig.defaults — NodeMCU-32S / ESP32S (no PSRAM)
-# Based on microlink/examples/ping_pong_esp32/sdkconfig.defaults
+# Based on MicroLink examples/ping_pong_esp32/sdkconfig.defaults (original upstream)
 
 # ── TLS / HTTPS (required for Tailscale coordination) ────────────────────────
 CONFIG_ESP_TLS_USING_MBEDTLS=y
@@ -32,11 +32,11 @@ CONFIG_LWIP_UDP_RECVMBOX_SIZE=6
 # No PSRAM on NodeMCU-32S — intentionally NOT setting CONFIG_SPIRAM
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
 
-# ── MicroLink — tuned for minimal SRAM usage ─────────────────────────────────
+# ── Tailscale — tuned for minimal SRAM usage ─────────────────────────────────
 # 24 KB coord buffer (minimum safe for small tailnets; increase to 32 if needed)
-CONFIG_MICROLINK_COORD_BUFFER_SIZE_KB=16
+CONFIG_TS_COORD_BUFFER_SIZE_KB=16
 # Max 4 peers; we only need 1 remote device to trigger WoL
-CONFIG_MICROLINK_MAX_PEERS=4
+CONFIG_TS_MAX_PEERS=4
 
 # ── WiFi — reduced buffers ────────────────────────────────────────────────────
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6

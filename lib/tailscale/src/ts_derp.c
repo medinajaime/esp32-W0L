@@ -1,5 +1,5 @@
 /**
- * @file microlink_derp.c
+ * @file ts_derp.c
  * @brief DERP relay client implementation
  *
  * DERP (Designated Encrypted Relay for Packets) provides NAT traversal
@@ -11,7 +11,7 @@
  *   [1 byte type][4 byte length (big-endian)][payload]
  */
 
-#include "microlink_internal.h"
+#include "ts_internal.h"
 #include "nacl_box.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -25,7 +25,7 @@
 #include <lwip/sockets.h>
 #include <errno.h>
 
-static const char *TAG = "ml_derp";
+static const char *TAG = "ts_derp";
 
 /* DERP frame types */
 #define DERP_MAGIC_LEN          6
@@ -63,7 +63,7 @@ static const char *TAG = "ml_derp";
 #define DERP_KEEPALIVE_MS       30000
 
 /* Maximum frame size */
-#define DERP_MAX_FRAME_SIZE     (MICROLINK_NETWORK_BUFFER_SIZE + 64)
+#define DERP_MAX_FRAME_SIZE     (TS_NETWORK_BUFFER_SIZE + 64)
 
 /* mbedTLS context for DERP */
 static mbedtls_entropy_context derp_entropy;
@@ -78,7 +78,7 @@ static uint8_t derp_rx_buffer[DERP_MAX_FRAME_SIZE];
 static uint8_t derp_server_key[DERP_SERVER_KEY_LEN];
 
 /* Current DERP server being used (for fallback support) */
-static const char *current_derp_server = MICROLINK_DERP_SERVER;
+static const char *current_derp_server = TS_DERP_SERVER;
 
 /* Mutex for serializing ALL TLS operations (mbedtls SSL context is NOT thread-safe) */
 /* Both read and write must be protected - concurrent access causes deadlock/corruption */
@@ -88,7 +88,7 @@ static StaticSemaphore_t derp_tls_mutex_buffer;
 /**
  * @brief Write exact number of bytes to TLS
  */
-static int derp_tls_write_all(microlink_t *ml, const uint8_t *data, size_t len) {
+static int derp_tls_write_all(ts_t *ml, const uint8_t *data, size_t len) {
     size_t written = 0;
     int retries = 0;
     const int max_retries = 20;  // 20 * 10ms = 200ms max (socket has 100ms timeout)
@@ -155,12 +155,12 @@ static int derp_tls_write_all(microlink_t *ml, const uint8_t *data, size_t len) 
 /**
  * @brief Read exact number of bytes from TLS
  */
-static int derp_tls_read_all(microlink_t *ml, uint8_t *data, size_t len, int timeout_ms) {
+static int derp_tls_read_all(ts_t *ml, uint8_t *data, size_t len, int timeout_ms) {
     size_t received = 0;
-    uint64_t start_ms = microlink_get_time_ms();
+    uint64_t start_ms = ts_get_time_ms();
 
     while (received < len) {
-        if (timeout_ms > 0 && (microlink_get_time_ms() - start_ms) > (uint64_t)timeout_ms) {
+        if (timeout_ms > 0 && (ts_get_time_ms() - start_ms) > (uint64_t)timeout_ms) {
             return -2;  // Timeout
         }
 
@@ -191,7 +191,7 @@ static int derp_tls_read_all(microlink_t *ml, uint8_t *data, size_t len, int tim
 /**
  * @brief Send a DERP frame (thread-safe with mutex)
  */
-static esp_err_t derp_send_frame(microlink_t *ml, uint8_t type, const uint8_t *payload, uint32_t len) {
+static esp_err_t derp_send_frame(ts_t *ml, uint8_t type, const uint8_t *payload, uint32_t len) {
     ESP_LOGI(TAG, "[FRAME] >> type=0x%02x len=%lu", type, (unsigned long)len);
 
     // Initialize mutex on first use (static allocation for RTOS safety)
@@ -254,7 +254,7 @@ done:
 /**
  * @brief Receive a DERP frame header
  */
-static esp_err_t derp_recv_frame_header(microlink_t *ml, uint8_t *type, uint32_t *len, int timeout_ms) {
+static esp_err_t derp_recv_frame_header(ts_t *ml, uint8_t *type, uint32_t *len, int timeout_ms) {
     uint8_t header[5];
     int ret = derp_tls_read_all(ml, header, 5, timeout_ms);
     if (ret < 0) {
@@ -273,14 +273,14 @@ static esp_err_t derp_recv_frame_header(microlink_t *ml, uint8_t *type, uint32_t
 /**
  * @brief Send HTTP upgrade request for DERP
  */
-static esp_err_t derp_send_http_upgrade(microlink_t *ml) {
+static esp_err_t derp_send_http_upgrade(ts_t *ml) {
     char request[512];
     int len = snprintf(request, sizeof(request),
         "GET /derp HTTP/1.1\r\n"
         "Host: %s\r\n"
         "Connection: Upgrade\r\n"
         "Upgrade: DERP\r\n"
-        "User-Agent: MicroLink/1.0\r\n"
+        "User-Agent: Tailscale/1.0\r\n"
         "\r\n",
         current_derp_server);
 
@@ -295,10 +295,10 @@ static esp_err_t derp_send_http_upgrade(microlink_t *ml) {
     // Read HTTP response (look for "101 Switching Protocols")
     uint8_t response[512];
     int total = 0;
-    uint64_t start = microlink_get_time_ms();
+    uint64_t start = ts_get_time_ms();
 
     while (total < (int)sizeof(response) - 1) {
-        if (microlink_get_time_ms() - start > 10000) {
+        if (ts_get_time_ms() - start > 10000) {
             ESP_LOGE(TAG, "HTTP upgrade timeout after %d bytes", total);
             if (total > 0) {
                 response[total] = '\0';
@@ -351,7 +351,7 @@ static esp_err_t derp_send_http_upgrade(microlink_t *ml) {
 /**
  * @brief Perform DERP handshake
  */
-static esp_err_t derp_handshake(microlink_t *ml) {
+static esp_err_t derp_handshake(ts_t *ml) {
     uint8_t type;
     uint32_t len;
     esp_err_t err;
@@ -509,20 +509,20 @@ static esp_err_t derp_handshake(microlink_t *ml) {
     return ESP_OK;
 }
 
-esp_err_t microlink_derp_init(microlink_t *ml) {
+esp_err_t ts_derp_init(ts_t *ml) {
     ESP_LOGI(TAG, "Initializing DERP client");
 
-    memset(&ml->derp, 0, sizeof(microlink_derp_t));
+    memset(&ml->derp, 0, sizeof(ts_derp_t));
     ml->derp.sockfd = -1;
 
     // Initialize dynamic DERP discovery based on Kconfig
-#ifdef CONFIG_MICROLINK_DERP_DYNAMIC_DISCOVERY
+#ifdef CONFIG_TS_DERP_DYNAMIC_DISCOVERY
     ml->derp.dynamic_discovery_enabled = true;
     ESP_LOGI(TAG, "DERP dynamic discovery: ENABLED (will use DERPMap from server)");
 #else
     ml->derp.dynamic_discovery_enabled = false;
     ESP_LOGI(TAG, "DERP dynamic discovery: DISABLED (using hardcoded: %s)",
-             MICROLINK_DERP_SERVER);
+             TS_DERP_SERVER);
 #endif
 
     // Initialize mbedTLS RNG (once)
@@ -530,7 +530,7 @@ esp_err_t microlink_derp_init(microlink_t *ml) {
         mbedtls_entropy_init(&derp_entropy);
         mbedtls_ctr_drbg_init(&derp_ctr_drbg);
 
-        const char *pers = "microlink_derp";
+        const char *pers = "ts_derp";
         int ret = mbedtls_ctr_drbg_seed(&derp_ctr_drbg, mbedtls_entropy_func,
                                          &derp_entropy, (const uint8_t *)pers, strlen(pers));
         if (ret != 0) {
@@ -549,7 +549,7 @@ esp_err_t microlink_derp_init(microlink_t *ml) {
     return ESP_OK;
 }
 
-esp_err_t microlink_derp_deinit(microlink_t *ml) {
+esp_err_t ts_derp_deinit(ts_t *ml) {
     ESP_LOGI(TAG, "Deinitializing DERP client");
 
     if (ml->derp.connected) {
@@ -565,37 +565,37 @@ esp_err_t microlink_derp_deinit(microlink_t *ml) {
         close(ml->derp.sockfd);
     }
 
-    memset(&ml->derp, 0, sizeof(microlink_derp_t));
+    memset(&ml->derp, 0, sizeof(ts_derp_t));
     ml->derp.sockfd = -1;
 
     return ESP_OK;
 }
 
-static esp_err_t derp_connect_once(microlink_t *ml);
+static esp_err_t derp_connect_once(ts_t *ml);
 
 /* Current DERP port (may be overridden by dynamic discovery) */
-static uint16_t current_derp_port = MICROLINK_DERP_PORT;
+static uint16_t current_derp_port = TS_DERP_PORT;
 
-esp_err_t microlink_derp_connect(microlink_t *ml) {
+esp_err_t ts_derp_connect(ts_t *ml) {
     // ========================================================================
     // DERP Server Selection Strategy:
     // 1. If dynamic discovery is enabled AND regions were discovered from DERPMap,
     //    use the discovered regions in order.
-    // 2. Otherwise, use the hardcoded MICROLINK_DERP_SERVER and fallback.
+    // 2. Otherwise, use the hardcoded TS_DERP_SERVER and fallback.
     //
     // This allows users to:
     // - Use hardcoded servers for self-hosted DERP or deterministic selection
     // - Use dynamic discovery when tailnet has custom derpMap configurations
     // ========================================================================
 
-#ifdef CONFIG_MICROLINK_DERP_DYNAMIC_DISCOVERY
+#ifdef CONFIG_TS_DERP_DYNAMIC_DISCOVERY
     // Dynamic discovery mode: use regions from DERPMap if available
     if (ml->derp.dynamic_discovery_enabled && ml->derp.region_count > 0) {
         ESP_LOGI(TAG, "DERP: Using dynamic discovery (%d regions available)",
                  ml->derp.region_count);
 
         // First, try to find and connect to the preferred region (from Kconfig)
-        int preferred_region_id = MICROLINK_DERP_REGION;
+        int preferred_region_id = TS_DERP_REGION;
         int preferred_idx = -1;
         for (int i = 0; i < ml->derp.region_count; i++) {
             if (ml->derp.regions[i].region_id == preferred_region_id) {
@@ -611,7 +611,7 @@ esp_err_t microlink_derp_connect(microlink_t *ml) {
         }
 
         // Build connection order: preferred first, then others
-        int connection_order[MICROLINK_MAX_DERP_REGIONS];
+        int connection_order[TS_MAX_DERP_REGIONS];
         int order_count = 0;
 
         // Add preferred region first if found
@@ -628,7 +628,7 @@ esp_err_t microlink_derp_connect(microlink_t *ml) {
 
         for (int order_idx = 0; order_idx < order_count; order_idx++) {
             int region_idx = connection_order[order_idx];
-            microlink_derp_region_t *region = &ml->derp.regions[region_idx];
+            ts_derp_region_t *region = &ml->derp.regions[region_idx];
             current_derp_server = region->hostname;
             current_derp_port = region->port;
 
@@ -670,12 +670,12 @@ esp_err_t microlink_derp_connect(microlink_t *ml) {
         ESP_LOGE(TAG, "DERP: All %d discovered regions failed", ml->derp.region_count);
         return ESP_FAIL;
     }
-#endif  // CONFIG_MICROLINK_DERP_DYNAMIC_DISCOVERY
+#endif  // CONFIG_TS_DERP_DYNAMIC_DISCOVERY
 
     // Hardcoded mode (default): use configured servers
     ESP_LOGI(TAG, "DERP: Using hardcoded servers");
-    const char *servers[] = {MICROLINK_DERP_SERVER, MICROLINK_DERP_SERVER_FALLBACK};
-    current_derp_port = MICROLINK_DERP_PORT;
+    const char *servers[] = {TS_DERP_SERVER, TS_DERP_SERVER_FALLBACK};
+    current_derp_port = TS_DERP_PORT;
 
     for (int server_idx = 0; server_idx < 2; server_idx++) {
         current_derp_server = servers[server_idx];
@@ -719,7 +719,7 @@ esp_err_t microlink_derp_connect(microlink_t *ml) {
     return ESP_FAIL;
 }
 
-static esp_err_t derp_connect_once(microlink_t *ml) {
+static esp_err_t derp_connect_once(ts_t *ml) {
     int ret;
     char port_str[8];
 
@@ -730,14 +730,14 @@ static esp_err_t derp_connect_once(microlink_t *ml) {
 
     // Step 1: TCP connection
     ESP_LOGI(TAG, "Establishing TCP connection...");
-    uint64_t tcp_start = microlink_get_time_ms();
+    uint64_t tcp_start = ts_get_time_ms();
     ret = mbedtls_net_connect(&derp_server_fd, current_derp_server, port_str, MBEDTLS_NET_PROTO_TCP);
     if (ret != 0) {
         ESP_LOGE(TAG, "TCP connect failed: -0x%04x", -ret);
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "TCP connected in %lu ms (fd=%d)",
-             (unsigned long)(microlink_get_time_ms() - tcp_start), derp_server_fd.fd);
+             (unsigned long)(ts_get_time_ms() - tcp_start), derp_server_fd.fd);
     ml->derp.sockfd = derp_server_fd.fd;
 
     // Set socket timeouts for TLS handshake
@@ -779,7 +779,7 @@ static esp_err_t derp_connect_once(microlink_t *ml) {
 
     // Step 3: TLS handshake
     ESP_LOGI(TAG, "Performing TLS handshake...");
-    uint64_t tls_start = microlink_get_time_ms();
+    uint64_t tls_start = ts_get_time_ms();
     while ((ret = mbedtls_ssl_handshake(&ml->derp.ssl)) != 0) {
         if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
             ESP_LOGE(TAG, "TLS handshake failed: -0x%04x", -ret);
@@ -787,7 +787,7 @@ static esp_err_t derp_connect_once(microlink_t *ml) {
         }
     }
     ESP_LOGI(TAG, "TLS handshake complete in %lu ms, cipher: %s",
-             (unsigned long)(microlink_get_time_ms() - tls_start),
+             (unsigned long)(ts_get_time_ms() - tls_start),
              mbedtls_ssl_get_ciphersuite(&ml->derp.ssl));
 
     // Step 4: HTTP upgrade to DERP
@@ -803,7 +803,7 @@ static esp_err_t derp_connect_once(microlink_t *ml) {
     }
 
     ml->derp.connected = true;
-    ml->derp.last_keepalive_ms = microlink_get_time_ms();
+    ml->derp.last_keepalive_ms = ts_get_time_ms();
 
     // CRITICAL: Set socket to non-blocking mode for TLS operations
     // This makes mbedtls return WANT_READ/WANT_WRITE instead of blocking forever
@@ -839,7 +839,7 @@ fail:
     return ESP_FAIL;
 }
 
-esp_err_t microlink_derp_reconnect(microlink_t *ml) {
+esp_err_t ts_derp_reconnect(ts_t *ml) {
     ESP_LOGI(TAG, "Reconnecting DERP relay (coordination session refreshed)...");
 
     // Close existing connection if any
@@ -864,36 +864,36 @@ esp_err_t microlink_derp_reconnect(microlink_t *ml) {
     vTaskDelay(pdMS_TO_TICKS(1000));
 
     // Reconnect
-    return microlink_derp_connect(ml);
+    return ts_derp_connect(ml);
 }
 
-esp_err_t microlink_derp_send(microlink_t *ml, uint32_t dest_vpn_ip,
+esp_err_t ts_derp_send(ts_t *ml, uint32_t dest_vpn_ip,
                               const uint8_t *data, size_t len) {
     if (!ml->derp.connected) {
         return ESP_ERR_INVALID_STATE;
     }
 
     // Find peer by VPN IP to get their public key
-    uint8_t peer_idx = microlink_peer_find_by_vpn_ip(ml, dest_vpn_ip);
+    uint8_t peer_idx = ts_peer_find_by_vpn_ip(ml, dest_vpn_ip);
     if (peer_idx >= ml->peer_count) {
         ESP_LOGW(TAG, "Peer not found for VPN IP");
         return ESP_ERR_NOT_FOUND;
     }
 
-    const microlink_peer_t *peer = &ml->peers[peer_idx];
+    const ts_peer_t *peer = &ml->peers[peer_idx];
 
     // Delegate to raw send function
-    return microlink_derp_send_raw(ml, peer->public_key, data, len);
+    return ts_derp_send_raw(ml, peer->public_key, data, len);
 }
 
-esp_err_t microlink_derp_send_raw(microlink_t *ml, const uint8_t *dest_pubkey,
+esp_err_t ts_derp_send_raw(ts_t *ml, const uint8_t *dest_pubkey,
                                    const uint8_t *data, size_t len) {
     if (!ml->derp.connected) {
         ESP_LOGW(TAG, "DERP not connected, cannot send WG packet");
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (len > MICROLINK_NETWORK_BUFFER_SIZE) {
+    if (len > TS_NETWORK_BUFFER_SIZE) {
         ESP_LOGE(TAG, "Packet too large: %u", (unsigned int)len);
         return ESP_ERR_INVALID_SIZE;
     }
@@ -935,7 +935,7 @@ esp_err_t microlink_derp_send_raw(microlink_t *ml, const uint8_t *dest_pubkey,
     return err;
 }
 
-esp_err_t microlink_derp_receive(microlink_t *ml) {
+esp_err_t ts_derp_receive(ts_t *ml) {
     static uint32_t recv_call_count = 0;
     static uint64_t last_recv_debug = 0;
 
@@ -947,7 +947,7 @@ esp_err_t microlink_derp_receive(microlink_t *ml) {
 
     // Send NotePreferred periodically to keep connection alive
     // This tells the server we're still here and this is our preferred DERP
-    uint64_t now = microlink_get_time_ms();
+    uint64_t now = ts_get_time_ms();
     if (now - ml->derp.last_keepalive_ms > DERP_KEEPALIVE_MS) {
         ESP_LOGI(TAG, "Sending DERP NotePreferred keepalive (calls=%lu)", (unsigned long)recv_call_count);
         // NotePreferred frame: 1 byte bool (0x01 = preferred)
@@ -1033,9 +1033,9 @@ esp_err_t microlink_derp_receive(microlink_t *ml) {
 
             // Check if this is a DISCO packet (starts with "TS💬" magic)
             // DISCO packets must be routed to the DISCO handler, NOT WireGuard
-            if (microlink_disco_is_disco_packet(payload, payload_len)) {
+            if (ts_disco_is_disco_packet(payload, payload_len)) {
                 ESP_LOGI(TAG, "Received DISCO packet via DERP (%u bytes)", (unsigned int)payload_len);
-                microlink_disco_handle_derp_packet(ml, src_key, payload, payload_len);
+                ts_disco_handle_derp_packet(ml, src_key, payload, payload_len);
                 break;
             }
 
@@ -1074,7 +1074,7 @@ esp_err_t microlink_derp_receive(microlink_t *ml) {
             // CRITICAL: Inject WireGuard packets DIRECTLY into the WG stack
             // This is essential for handshake processing - don't just queue them!
             // Handshake responses need immediate processing or they'll timeout.
-            esp_err_t inject_err = microlink_wireguard_inject_derp_packet(ml, src_vpn_ip,
+            esp_err_t inject_err = ts_wireguard_inject_derp_packet(ml, src_vpn_ip,
                                                                            payload, payload_len);
             if (inject_err != ESP_OK) {
                 ESP_LOGW(TAG, "Failed to inject DERP packet into WireGuard: %d", inject_err);

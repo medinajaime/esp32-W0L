@@ -139,7 +139,7 @@ See the [full docs](https://jaimesalcedo1.github.io/wol-esp32/docs.html) for per
 - **DERP-only connectivity** — Direct UDP paths often fail on ESP32 due to NAT; traffic relays through Tailscale's encrypted DERP servers (still end-to-end WireGuard encrypted)
 - **Single target MAC** — One configured PC per device. Multiple targets would require firmware changes
 - **No trigger authentication** — Any Tailscale peer can wake the PC. Use Tailscale ACLs to restrict access
-- **No PSRAM** — Heap runs close to the edge (~6 KB minimum during peer sync). If OOM occurs, reduce `CONFIG_MICROLINK_COORD_BUFFER_SIZE_KB` to 16 in `sdkconfig.defaults`
+- **No PSRAM** — Heap runs close to the edge (~6 KB minimum during peer sync). If OOM occurs, reduce `CONFIG_TS_COORD_BUFFER_SIZE_KB` to 16 in `sdkconfig.defaults`
 
 ---
 

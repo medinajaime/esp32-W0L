@@ -1,5 +1,5 @@
 /**
- * @file microlink_stun.c
+ * @file ts_stun.c
  * @brief STUN client for NAT discovery (RFC 5389/8489)
  *
  * Discovers public IP and port mapping using STUN protocol.
@@ -13,7 +13,7 @@
  * Binding Response: type 0x0101, contains XOR-MAPPED-ADDRESS (0x0020)
  */
 
-#include "microlink_internal.h"
+#include "ts_internal.h"
 #include "esp_log.h"
 #include <string.h>
 #include <sys/socket.h>
@@ -21,7 +21,7 @@
 #include <lwip/sockets.h>
 #include <errno.h>
 
-static const char *TAG = "ml_stun";
+static const char *TAG = "ts_stun";
 
 /* STUN protocol constants (RFC 5389) */
 #define STUN_MAGIC_COOKIE       0x2112A442
@@ -193,10 +193,10 @@ static int stun_parse_binding_response(const uint8_t *buf, size_t len,
     return -1;
 }
 
-esp_err_t microlink_stun_init(microlink_t *ml) {
+esp_err_t ts_stun_init(ts_t *ml) {
     ESP_LOGI(TAG, "Initializing STUN client");
 
-    memset(&ml->stun, 0, sizeof(microlink_stun_t));
+    memset(&ml->stun, 0, sizeof(ts_stun_t));
     ml->stun.sock_fd = -1;
 
     // Create UDP socket
@@ -218,7 +218,7 @@ esp_err_t microlink_stun_init(microlink_t *ml) {
     return ESP_OK;
 }
 
-esp_err_t microlink_stun_deinit(microlink_t *ml) {
+esp_err_t ts_stun_deinit(ts_t *ml) {
     ESP_LOGI(TAG, "Deinitializing STUN client");
 
     if (ml->stun.sock_fd >= 0) {
@@ -226,7 +226,7 @@ esp_err_t microlink_stun_deinit(microlink_t *ml) {
         ml->stun.sock_fd = -1;
     }
 
-    memset(&ml->stun, 0, sizeof(microlink_stun_t));
+    memset(&ml->stun, 0, sizeof(ts_stun_t));
     return ESP_OK;
 }
 
@@ -234,7 +234,7 @@ esp_err_t microlink_stun_deinit(microlink_t *ml) {
  * @brief Try STUN probe to a specific server
  * @return ESP_OK on success, ESP_FAIL on failure
  */
-static esp_err_t stun_probe_server(microlink_t *ml, const char *server, uint16_t port) {
+static esp_err_t stun_probe_server(ts_t *ml, const char *server, uint16_t port) {
     ESP_LOGI(TAG, "Trying STUN server %s:%d", server, port);
 
     // Resolve STUN server hostname
@@ -304,7 +304,7 @@ static esp_err_t stun_probe_server(microlink_t *ml, const char *server, uint16_t
             ml->stun.public_ip = mapped_ip;
             ml->stun.public_port = mapped_port;
             ml->stun.nat_detected = true;
-            ml->stun.last_probe_ms = microlink_get_time_ms();
+            ml->stun.last_probe_ms = ts_get_time_ms();
 
             ESP_LOGI(TAG, "STUN probe successful: public endpoint %lu.%lu.%lu.%lu:%u",
                      (mapped_ip >> 24) & 0xFF,
@@ -322,20 +322,20 @@ static esp_err_t stun_probe_server(microlink_t *ml, const char *server, uint16_t
     return ESP_FAIL;
 }
 
-esp_err_t microlink_stun_probe(microlink_t *ml) {
+esp_err_t ts_stun_probe(ts_t *ml) {
     if (ml->stun.sock_fd < 0) {
         ESP_LOGE(TAG, "STUN socket not initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
     // Try primary STUN server first (Tailscale)
-    if (stun_probe_server(ml, MICROLINK_STUN_SERVER, MICROLINK_STUN_PORT) == ESP_OK) {
+    if (stun_probe_server(ml, TS_STUN_SERVER, TS_STUN_PORT) == ESP_OK) {
         return ESP_OK;
     }
 
     // Try fallback server (Google)
     ESP_LOGW(TAG, "Primary STUN server failed, trying fallback...");
-    if (stun_probe_server(ml, MICROLINK_STUN_SERVER_FALLBACK, MICROLINK_STUN_PORT_GOOGLE) == ESP_OK) {
+    if (stun_probe_server(ml, TS_STUN_SERVER_FALLBACK, TS_STUN_PORT_GOOGLE) == ESP_OK) {
         return ESP_OK;
     }
 

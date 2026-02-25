@@ -1,15 +1,15 @@
 /**
- * @file microlink_peer_registry.h
+ * @file ts_peer_registry.h
  * @brief Flash-based peer registry for 1024+ device support (Task 1.2)
  *
  * Provides persistent storage for up to 1024 Tailscale peers using ESP32's
  * NVS (Non-Volatile Storage). Only active peers are kept in RAM cache.
  */
 
-#ifndef MICROLINK_PEER_REGISTRY_H
-#define MICROLINK_PEER_REGISTRY_H
+#ifndef TS_PEER_REGISTRY_H
+#define TS_PEER_REGISTRY_H
 
-#include "microlink.h"
+#include "ts.h"
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -21,10 +21,10 @@ extern "C" {
  * ========================================================================== */
 
 /** Maximum peers stored in flash registry */
-#define MICROLINK_PEER_REGISTRY_MAX     1024
+#define TS_PEER_REGISTRY_MAX     1024
 
 /** Active peers kept in RAM cache (for WireGuard) */
-#define MICROLINK_PEER_CACHE_SIZE       16
+#define TS_PEER_CACHE_SIZE       16
 
 /* ============================================================================
  * API Functions
@@ -38,14 +38,14 @@ extern "C" {
  *
  * @return ESP_OK on success
  */
-esp_err_t microlink_peer_registry_init(void);
+esp_err_t ts_peer_registry_init(void);
 
 /**
  * @brief Deinitialize peer registry
  *
  * Flushes dirty cache entries and closes NVS.
  */
-void microlink_peer_registry_deinit(void);
+void ts_peer_registry_deinit(void);
 
 /**
  * @brief Get peer by VPN IP
@@ -59,7 +59,7 @@ void microlink_peer_registry_deinit(void);
  * @note Returned pointer is valid until next registry operation that may
  *       cause cache eviction. Copy data if needed for longer.
  */
-microlink_peer_t *microlink_peer_registry_get(uint32_t vpn_ip);
+ts_peer_t *ts_peer_registry_get(uint32_t vpn_ip);
 
 /**
  * @brief Add or update peer in registry
@@ -69,14 +69,14 @@ microlink_peer_t *microlink_peer_registry_get(uint32_t vpn_ip);
  * @param peer Peer data to store
  * @return ESP_OK on success, ESP_ERR_NO_MEM if registry full
  */
-esp_err_t microlink_peer_registry_put(const microlink_peer_t *peer);
+esp_err_t ts_peer_registry_put(const ts_peer_t *peer);
 
 /**
  * @brief Get total number of registered peers
  *
  * @return Number of peers in flash registry
  */
-uint16_t microlink_peer_registry_count(void);
+uint16_t ts_peer_registry_count(void);
 
 /**
  * @brief Iterate through all registered peers
@@ -90,7 +90,7 @@ uint16_t microlink_peer_registry_count(void);
  *
  * @note This reads from flash for each peer - use sparingly.
  */
-int microlink_peer_registry_foreach(void (*callback)(const microlink_peer_t *peer, void *user_data),
+int ts_peer_registry_foreach(void (*callback)(const ts_peer_t *peer, void *user_data),
                                      void *user_data);
 
 /**
@@ -100,7 +100,7 @@ int microlink_peer_registry_foreach(void (*callback)(const microlink_peer_t *pee
  *
  * @return ESP_OK on success
  */
-esp_err_t microlink_peer_registry_clear(void);
+esp_err_t ts_peer_registry_clear(void);
 
 /**
  * @brief Get active (cached) peers
@@ -112,7 +112,7 @@ esp_err_t microlink_peer_registry_clear(void);
  * @param max_peers Maximum number of peers to return
  * @return Number of peers returned
  */
-int microlink_peer_registry_get_active(microlink_peer_t **peers, int max_peers);
+int ts_peer_registry_get_active(ts_peer_t **peers, int max_peers);
 
 /* ============================================================================
  * Stress Testing (Task 1.2 Verification)
@@ -129,7 +129,7 @@ typedef struct {
     uint32_t read_time_ms;          ///< Total time to read all peers
     uint32_t flash_bytes_used;      ///< Estimated flash bytes used
     bool passed;                    ///< True if all peers verified correctly
-} microlink_peer_registry_stress_result_t;
+} ts_peer_registry_stress_result_t;
 
 /**
  * @brief Run stress test with synthetic peers
@@ -144,18 +144,18 @@ typedef struct {
  * @return ESP_OK if test completed (check result->passed for success)
  *
  * @code
- * microlink_peer_registry_stress_result_t result;
- * microlink_peer_registry_stress_test(1024, &result);
+ * ts_peer_registry_stress_result_t result;
+ * ts_peer_registry_stress_test(1024, &result);
  * printf("Wrote %d peers in %lu ms (%.1f KB flash)\n",
  *        result.peers_written, result.write_time_ms,
  *        result.flash_bytes_used / 1024.0f);
  * @endcode
  */
-esp_err_t microlink_peer_registry_stress_test(uint16_t num_peers,
-                                               microlink_peer_registry_stress_result_t *result);
+esp_err_t ts_peer_registry_stress_test(uint16_t num_peers,
+                                               ts_peer_registry_stress_result_t *result);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* MICROLINK_PEER_REGISTRY_H */
+#endif /* TS_PEER_REGISTRY_H */

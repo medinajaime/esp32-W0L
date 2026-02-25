@@ -3,7 +3,7 @@
  * Board : NodeMCU-32S / ESP32S  (no PSRAM)
  * Port  : /dev/ttyUSB0
  *
- * The device joins your Tailscale network using MicroLink and listens on a
+ * The device joins your Tailscale network and listens on a
  * UDP port.  Any UDP packet arriving on that port triggers a WoL magic packet
  * broadcast on the local LAN, waking the configured PC.
  *
@@ -31,7 +31,7 @@
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
 
-#include "microlink.h"
+#include "ts.h"
 
 static const char *TAG = "wol";
 
@@ -148,7 +148,7 @@ static esp_err_t wol_send_magic_packet(const uint8_t mac[6])
     /*
      * Bind to the WiFi STA IP so the packet exits via WiFi, not WireGuard.
      * Without this, lwIP might route the broadcast out the wrong interface
-     * when MicroLink is active.
+     * when the Tailscale VPN is active.
      */
     esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (sta) {
@@ -192,7 +192,7 @@ static esp_err_t wol_send_magic_packet(const uint8_t mac[6])
 
 static void wol_task(void *arg)
 {
-    microlink_t *ml = (microlink_t *)arg;
+    ts_t *ml = (ts_t *)arg;
 
     /* Validate MAC at startup — fail fast with a clear error */
     uint8_t target_mac[6];
@@ -213,12 +213,12 @@ static void wol_task(void *arg)
 
     /* Wait for Tailscale to come up */
     ESP_LOGI(TAG, "Waiting for Tailscale...");
-    while (!microlink_is_connected(ml)) {
+    while (!ts_is_connected(ml)) {
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
     char vpn_ip[16];
-    microlink_vpn_ip_to_str(microlink_get_vpn_ip(ml), vpn_ip);
+    ts_vpn_ip_to_str(ts_get_vpn_ip(ml), vpn_ip);
 
     ESP_LOGI(TAG, "");
     ESP_LOGI(TAG, "╔══════════════════════════════════════════╗");
@@ -232,11 +232,11 @@ static void wol_task(void *arg)
     ESP_LOGI(TAG, "╚══════════════════════════════════════════╝");
     ESP_LOGI(TAG, "");
 
-    microlink_udp_socket_t *sock = NULL;
+    ts_udp_socket_t *sock = NULL;
     bool prev_connected = true; /* already confirmed connected above */
 
     for (;;) {
-        bool connected = microlink_is_connected(ml);
+        bool connected = ts_is_connected(ml);
 
         /*
          * Detect reconnection: coordination went down and came back up.
@@ -246,18 +246,18 @@ static void wol_task(void *arg)
         if (connected && !prev_connected) {
             ESP_LOGI(TAG, "Tailscale reconnected — refreshing UDP socket");
             if (sock) {
-                microlink_udp_close(sock);
+                ts_udp_close(sock);
                 sock = NULL;
             }
         }
         prev_connected = connected;
 
         /*
-         * Create socket only when coordination is up (microlink_udp_create
+         * Create socket only when coordination is up (ts_udp_create
          * requires connected state to bind to the WireGuard netif).
          */
         if (connected && !sock) {
-            sock = microlink_udp_create(ml, CONFIG_WOL_LISTEN_PORT);
+            sock = ts_udp_create(ml, CONFIG_WOL_LISTEN_PORT);
             if (!sock) {
                 ESP_LOGE(TAG, "Failed to create UDP socket, retrying in 2 s...");
                 vTaskDelay(pdMS_TO_TICKS(2000));
@@ -284,15 +284,15 @@ static void wol_task(void *arg)
         uint32_t src_ip;
         uint16_t src_port;
 
-        esp_err_t err = microlink_udp_recv(sock, &src_ip, &src_port,
+        esp_err_t err = ts_udp_recv(sock, &src_ip, &src_port,
                                            buf, &len, 500);
         if (err == ESP_OK) {
             char src_str[16];
             ESP_LOGI(TAG, "Trigger from %s:%d — firing WoL",
-                     microlink_vpn_ip_to_str(src_ip, src_str), src_port);
+                     ts_vpn_ip_to_str(src_ip, src_str), src_port);
             if (wol_send_magic_packet(target_mac) == ESP_OK) {
                 const char ack[] = "ok";
-                microlink_udp_send(sock, src_ip, src_port, ack, sizeof(ack) - 1);
+                ts_udp_send(sock, src_ip, src_port, ack, sizeof(ack) - 1);
                 ESP_LOGI(TAG, "ACK sent to %s:%d", src_str, src_port);
             }
 
@@ -303,7 +303,7 @@ static void wol_task(void *arg)
             /* Unexpected error: socket gone stale */
             ESP_LOGW(TAG, "UDP recv error (%s), recreating socket...",
                      esp_err_to_name(err));
-            microlink_udp_close(sock);
+            ts_udp_close(sock);
             sock = NULL;
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
@@ -311,7 +311,7 @@ static void wol_task(void *arg)
 }
 
 /* ============================================================================
- * MicroLink callbacks
+ * Tailscale callbacks
  * ========================================================================== */
 
 static void on_connected(void)
@@ -324,11 +324,11 @@ static void on_disconnected(void)
     ESP_LOGW(TAG, "Tailscale disconnected");
 }
 
-static void on_state_change(microlink_state_t old_s, microlink_state_t new_s)
+static void on_state_change(ts_state_t old_s, ts_state_t new_s)
 {
     ESP_LOGI(TAG, "Tailscale state: %s → %s",
-             microlink_state_to_str(old_s),
-             microlink_state_to_str(new_s));
+             ts_state_to_str(old_s),
+             ts_state_to_str(new_s));
 }
 
 /* ============================================================================
@@ -337,7 +337,7 @@ static void on_state_change(microlink_state_t old_s, microlink_state_t new_s)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "ESP32 Wake-on-LAN  (MicroLink %s)", MICROLINK_VERSION);
+    ESP_LOGI(TAG, "ESP32 Wake-on-LAN  (Tailscale lib %s)", TS_VERSION);
     ESP_LOGI(TAG, "Free heap at boot: %lu B",
              (unsigned long)esp_get_free_heap_size());
 
@@ -355,9 +355,9 @@ void app_main(void)
     ESP_LOGI(TAG, "Free heap after WiFi: %lu B",
              (unsigned long)esp_get_free_heap_size());
 
-    /* MicroLink — memory-optimised for no-PSRAM ESP32 */
-    microlink_config_t cfg;
-    microlink_get_default_config(&cfg);
+    /* Tailscale — memory-optimised for no-PSRAM ESP32 */
+    ts_config_t cfg;
+    ts_get_default_config(&cfg);
 
     cfg.auth_key            = CONFIG_WOL_TAILSCALE_AUTH_KEY;
     cfg.device_name         = CONFIG_WOL_DEVICE_NAME;
@@ -369,25 +369,25 @@ void app_main(void)
     cfg.on_disconnected     = on_disconnected;
     cfg.on_state_change     = on_state_change;
 
-    microlink_t *ml = microlink_init(&cfg);
+    ts_t *ml = ts_init(&cfg);
     if (!ml) {
-        ESP_LOGE(TAG, "MicroLink init failed — likely out of memory");
+        ESP_LOGE(TAG, "Tailscale init failed — likely out of memory");
         ESP_LOGE(TAG, "Free heap: %lu B", (unsigned long)esp_get_free_heap_size());
-        ESP_LOGE(TAG, "Try reducing CONFIG_MICROLINK_COORD_BUFFER_SIZE_KB to 16");
+        ESP_LOGE(TAG, "Try reducing CONFIG_TS_COORD_BUFFER_SIZE_KB to 16");
         return;
     }
 
-    ESP_LOGI(TAG, "Free heap after MicroLink: %lu B",
+    ESP_LOGI(TAG, "Free heap after Tailscale init: %lu B",
              (unsigned long)esp_get_free_heap_size());
 
-    ESP_ERROR_CHECK(microlink_connect(ml));
+    ESP_ERROR_CHECK(ts_connect(ml));
 
     /* WoL listener runs in its own task (4 KB stack is enough) */
     xTaskCreate(wol_task, "wol", 6144, ml, 5, NULL);
 
-    /* Drive MicroLink state machine from main task */
+    /* Drive Tailscale state machine from main task */
     while (1) {
-        microlink_update(ml);
+        ts_update(ml);
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }

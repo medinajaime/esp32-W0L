@@ -657,8 +657,8 @@ Bytes 6–101 : &lt;target MAC&gt; × 16          (MAC repeated 16 times)</code>
     <ul>
       <li><code>CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=4096</code> — reduced from default 16 KB</li>
       <li><code>CONFIG_MBEDTLS_DYNAMIC_BUFFER=y</code> — TLS buffers freed after handshake</li>
-      <li><code>CONFIG_MICROLINK_COORD_BUFFER_SIZE_KB=16</code> — limits peak JSON parse allocation</li>
-      <li><code>CONFIG_MICROLINK_MAX_PEERS=4</code> — caps per-peer heap</li>
+      <li><code>CONFIG_TS_COORD_BUFFER_SIZE_KB=16</code> — limits peak JSON parse allocation</li>
+      <li><code>CONFIG_TS_MAX_PEERS=4</code> — caps per-peer heap</li>
       <li><code>CONFIG_COMPILER_OPTIMIZATION_SIZE=y</code> — <code>-Os</code> reduces binary size</li>
     </ul>
 
@@ -688,7 +688,7 @@ Bytes 6–101 : &lt;target MAC&gt; × 16          (MAC repeated 16 times)</code>
 
     <h3>ESP32 crashes on boot (heap overflow)</h3>
     <p>Reduce the coordination buffer. In <code>sdkconfig.defaults</code>:</p>
-    <pre><code>CONFIG_MICROLINK_COORD_BUFFER_SIZE_KB=12</code></pre>
+    <pre><code>CONFIG_TS_COORD_BUFFER_SIZE_KB=12</code></pre>
     <p>Then delete <code>sdkconfig</code> and rebuild.</p>
 
     <h3>Device doesn't appear in Tailscale admin console</h3>

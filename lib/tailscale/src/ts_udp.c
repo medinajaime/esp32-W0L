@@ -1,11 +1,11 @@
 /**
- * @file microlink_udp.c
- * @brief MicroLink UDP Socket API
+ * @file ts_udp.c
+ * @brief Tailscale UDP Socket API
  *
  * Provides simple UDP send/receive over Tailscale VPN, equivalent to:
  *   echo "data" | nc -u <tailscale_ip> <port>
  *
- * This implementation routes UDP through the existing MicroLink infrastructure:
+ * This implementation routes UDP through the existing Tailscale infrastructure:
  * - Uses WireGuard tunnel for encrypted transport (standard Tailscale path)
  * - Automatically sends DISCO CallMeMaybe to trigger peer handshake initiation
  * - Dedicated high-priority RX task for consistent packet reception
@@ -18,8 +18,8 @@
  * UDP communication.
  */
 
-#include "microlink.h"
-#include "microlink_internal.h"
+#include "ts.h"
+#include "ts_internal.h"
 #include "esp_log.h"
 #include "lwip/udp.h"
 #include "lwip/pbuf.h"
@@ -30,7 +30,7 @@
 #include "freertos/semphr.h"
 #include <string.h>
 
-static const char *TAG = "ml_udp";
+static const char *TAG = "ts_udp";
 
 /* High-priority UDP RX task settings */
 #define UDP_RX_TASK_PRIORITY    (configMAX_PRIORITIES - 2)  /* Just below DISCO */
@@ -52,8 +52,8 @@ typedef struct {
     bool valid;
 } udp_rx_packet_t;
 
-struct microlink_udp_socket {
-    microlink_t *ml;                    ///< Parent MicroLink context
+struct ts_udp_socket {
+    ts_t *ml;                    ///< Parent Tailscale context
     struct udp_pcb *pcb;                ///< lwIP UDP PCB (for receiving)
     uint16_t local_port;                ///< Local bound port
 
@@ -66,7 +66,7 @@ struct microlink_udp_socket {
     SemaphoreHandle_t rx_sem;
 
     // User callback for immediate packet handling
-    microlink_udp_rx_callback_t rx_callback;
+    ts_udp_rx_callback_t rx_callback;
     void *rx_callback_arg;
 
     // RX task handle
@@ -79,9 +79,9 @@ struct microlink_udp_socket {
  * ========================================================================== */
 
 /**
- * @brief Convert MicroLink IP (host byte order) to lwIP ip_addr_t
+ * @brief Convert Tailscale IP (host byte order) to lwIP ip_addr_t
  */
-static void microlink_ip_to_lwip(uint32_t ml_ip, ip_addr_t *lwip_ip) {
+static void ts_ip_to_lwip(uint32_t ml_ip, ip_addr_t *lwip_ip) {
     IP4_ADDR(&lwip_ip->u_addr.ip4,
              (ml_ip >> 24) & 0xFF,
              (ml_ip >> 16) & 0xFF,
@@ -91,9 +91,9 @@ static void microlink_ip_to_lwip(uint32_t ml_ip, ip_addr_t *lwip_ip) {
 }
 
 /**
- * @brief Convert lwIP ip_addr_t to MicroLink IP (host byte order)
+ * @brief Convert lwIP ip_addr_t to Tailscale IP (host byte order)
  */
-static uint32_t lwip_ip_to_microlink(const ip_addr_t *lwip_ip) {
+static uint32_t lwip_ip_to_tailscale(const ip_addr_t *lwip_ip) {
     if (lwip_ip->type != IPADDR_TYPE_V4) {
         return 0;
     }
@@ -113,7 +113,7 @@ static uint32_t lwip_ip_to_microlink(const ip_addr_t *lwip_ip) {
  */
 static void udp_recv_callback(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                                const ip_addr_t *addr, u16_t port) {
-    microlink_udp_socket_t *sock = (microlink_udp_socket_t *)arg;
+    ts_udp_socket_t *sock = (ts_udp_socket_t *)arg;
 
     if (!sock || !p) {
         if (p) pbuf_free(p);
@@ -130,7 +130,7 @@ static void udp_recv_callback(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 
     // Copy packet to queue
     udp_rx_packet_t *pkt = &sock->rx_queue[sock->rx_head];
-    pkt->src_ip = lwip_ip_to_microlink(addr);
+    pkt->src_ip = lwip_ip_to_tailscale(addr);
     pkt->src_port = port;
     pkt->len = (p->tot_len > UDP_MAX_PACKET_SIZE) ? UDP_MAX_PACKET_SIZE : p->tot_len;
     pbuf_copy_partial(p, pkt->data, pkt->len, 0);
@@ -158,7 +158,7 @@ static void udp_recv_callback(void *arg, struct udp_pcb *pcb, struct pbuf *p,
  * starved by other tasks.
  */
 static void udp_rx_task(void *arg) {
-    microlink_udp_socket_t *sock = (microlink_udp_socket_t *)arg;
+    ts_udp_socket_t *sock = (ts_udp_socket_t *)arg;
 
     ESP_LOGI(TAG, "[UDP_RX] Task started, priority=%d", uxTaskPriorityGet(NULL));
 
@@ -173,7 +173,7 @@ static void udp_rx_task(void *arg) {
                     char ip_buf[16];
                     ESP_LOGI(TAG, "[UDP_RX] Packet: %u bytes from %s:%u",
                              (unsigned int)pkt->len,
-                             microlink_vpn_ip_to_str(pkt->src_ip, ip_buf),
+                             ts_vpn_ip_to_str(pkt->src_ip, ip_buf),
                              pkt->src_port);
 
                     // Call user callback if registered
@@ -183,10 +183,10 @@ static void udp_rx_task(void *arg) {
                     }
                 }
 
-                // Note: Don't mark as invalid here - let microlink_udp_recv() handle it
+                // Note: Don't mark as invalid here - let ts_udp_recv() handle it
                 // for users who prefer polling instead of callbacks
 
-                // If no callback, just log and move on (user can poll with microlink_udp_recv)
+                // If no callback, just log and move on (user can poll with ts_udp_recv)
                 if (!sock->rx_callback) {
                     // Packet stays in queue for polling
                     break;
@@ -207,7 +207,7 @@ static void udp_rx_task(void *arg) {
  * Public API Implementation
  * ========================================================================== */
 
-uint32_t microlink_parse_ip(const char *ip_str) {
+uint32_t ts_parse_ip(const char *ip_str) {
     if (!ip_str) return 0;
 
     unsigned int a, b, c, d;
@@ -224,19 +224,19 @@ uint32_t microlink_parse_ip(const char *ip_str) {
     return (a << 24) | (b << 16) | (c << 8) | d;
 }
 
-microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_port) {
+ts_udp_socket_t *ts_udp_create(ts_t *ml, uint16_t local_port) {
     if (!ml) {
-        ESP_LOGE(TAG, "NULL MicroLink handle");
+        ESP_LOGE(TAG, "NULL Tailscale handle");
         return NULL;
     }
 
-    if (!microlink_is_connected(ml)) {
-        ESP_LOGE(TAG, "MicroLink not connected");
+    if (!ts_is_connected(ml)) {
+        ESP_LOGE(TAG, "Tailscale not connected");
         return NULL;
     }
 
     // Allocate socket structure
-    microlink_udp_socket_t *sock = calloc(1, sizeof(microlink_udp_socket_t));
+    ts_udp_socket_t *sock = calloc(1, sizeof(ts_udp_socket_t));
     if (!sock) {
         ESP_LOGE(TAG, "Failed to allocate UDP socket");
         return NULL;
@@ -275,7 +275,7 @@ microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_por
 
     // Bind to local IP and port
     ip_addr_t local_ip;
-    microlink_ip_to_lwip(ml->vpn_ip, &local_ip);
+    ts_ip_to_lwip(ml->vpn_ip, &local_ip);
 
     err_t err = udp_bind(sock->pcb, &local_ip, local_port);
     if (err != ERR_OK) {
@@ -312,7 +312,7 @@ microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_por
 
     char ip_buf[16];
     ESP_LOGI(TAG, "UDP socket created: %s:%u",
-             microlink_vpn_ip_to_str(ml->vpn_ip, ip_buf), sock->local_port);
+             ts_vpn_ip_to_str(ml->vpn_ip, ip_buf), sock->local_port);
 
     // Aggressively establish WireGuard sessions with all peers
     // Use BOTH approaches: trigger handshake from our side AND send CallMeMaybe
@@ -322,18 +322,18 @@ microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_por
         uint32_t peer_ip = ml->peers[i].vpn_ip;
 
         // 1. Trigger WireGuard handshake from ESP32 side
-        esp_err_t hs_err = microlink_wireguard_trigger_handshake(ml, peer_ip);
+        esp_err_t hs_err = ts_wireguard_trigger_handshake(ml, peer_ip);
         if (hs_err == ESP_OK) {
             ESP_LOGI(TAG, "  -> Handshake triggered to peer %d (%s)",
-                     i, microlink_vpn_ip_to_str(peer_ip, ip_buf));
+                     i, ts_vpn_ip_to_str(peer_ip, ip_buf));
         }
 
         // 2. Also send CallMeMaybe to request peer initiate handshake
         // This covers the case where our handshake doesn't complete (NAT issues)
-        esp_err_t cmm_err = microlink_disco_send_call_me_maybe(ml, peer_ip);
+        esp_err_t cmm_err = ts_disco_send_call_me_maybe(ml, peer_ip);
         if (cmm_err == ESP_OK) {
             ESP_LOGI(TAG, "  -> CallMeMaybe sent to peer %d (%s)",
-                     i, microlink_vpn_ip_to_str(peer_ip, ip_buf));
+                     i, ts_vpn_ip_to_str(peer_ip, ip_buf));
         }
 
         // Small delay between peers to avoid overwhelming the network
@@ -343,7 +343,7 @@ microlink_udp_socket_t *microlink_udp_create(microlink_t *ml, uint16_t local_por
     return sock;
 }
 
-void microlink_udp_close(microlink_udp_socket_t *sock) {
+void ts_udp_close(ts_udp_socket_t *sock) {
     if (!sock) return;
 
     // Stop RX task first
@@ -370,8 +370,8 @@ void microlink_udp_close(microlink_udp_socket_t *sock) {
     free(sock);
 }
 
-esp_err_t microlink_udp_set_rx_callback(microlink_udp_socket_t *sock,
-                                         microlink_udp_rx_callback_t callback,
+esp_err_t ts_udp_set_rx_callback(ts_udp_socket_t *sock,
+                                         ts_udp_rx_callback_t callback,
                                          void *user_arg) {
     if (!sock) {
         return ESP_ERR_INVALID_ARG;
@@ -384,7 +384,7 @@ esp_err_t microlink_udp_set_rx_callback(microlink_udp_socket_t *sock,
     return ESP_OK;
 }
 
-esp_err_t microlink_udp_send(microlink_udp_socket_t *sock, uint32_t dest_ip,
+esp_err_t ts_udp_send(ts_udp_socket_t *sock, uint32_t dest_ip,
                               uint16_t dest_port, const void *data, size_t len) {
     if (!sock || !sock->pcb || !data || len == 0) {
         return ESP_ERR_INVALID_ARG;
@@ -394,7 +394,7 @@ esp_err_t microlink_udp_send(microlink_udp_socket_t *sock, uint32_t dest_ip,
         return ESP_ERR_INVALID_STATE;
     }
 
-    microlink_t *ml = sock->ml;
+    ts_t *ml = sock->ml;
 
     if (len > UDP_MAX_PACKET_SIZE) {
         ESP_LOGE(TAG, "Packet too large: %u", (unsigned int)len);
@@ -405,7 +405,7 @@ esp_err_t microlink_udp_send(microlink_udp_socket_t *sock, uint32_t dest_ip,
 
     // Convert destination IP to lwIP format
     ip_addr_t dest_addr;
-    microlink_ip_to_lwip(dest_ip, &dest_addr);
+    ts_ip_to_lwip(dest_ip, &dest_addr);
 
     // Allocate pbuf for the data
     struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
@@ -433,54 +433,54 @@ esp_err_t microlink_udp_send(microlink_udp_socket_t *sock, uint32_t dest_ip,
         }
 
         ESP_LOGW(TAG, "udp_sendto(%s:%u) failed: %d (%s)",
-                 microlink_vpn_ip_to_str(dest_ip, ip_buf), dest_port, err, err_str);
+                 ts_vpn_ip_to_str(dest_ip, ip_buf), dest_port, err, err_str);
 
         // Trigger WireGuard handshake from our side
         // This establishes bidirectional session even without peer initiation
-        esp_err_t hs_err = microlink_wireguard_trigger_handshake(ml, dest_ip);
+        esp_err_t hs_err = ts_wireguard_trigger_handshake(ml, dest_ip);
         if (hs_err == ESP_OK) {
             ESP_LOGI(TAG, "WireGuard handshake triggered to %s",
-                     microlink_vpn_ip_to_str(dest_ip, ip_buf));
+                     ts_vpn_ip_to_str(dest_ip, ip_buf));
         }
 
         // Also send CallMeMaybe as backup to request peer initiate handshake
-        esp_err_t cmm_err = microlink_disco_send_call_me_maybe(ml, dest_ip);
+        esp_err_t cmm_err = ts_disco_send_call_me_maybe(ml, dest_ip);
         if (cmm_err == ESP_OK) {
             ESP_LOGI(TAG, "CallMeMaybe also sent to %s",
-                     microlink_vpn_ip_to_str(dest_ip, ip_buf));
+                     ts_vpn_ip_to_str(dest_ip, ip_buf));
         }
 
         return ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "UDP sent %u bytes to %s:%u via WireGuard",
-             (unsigned int)len, microlink_vpn_ip_to_str(dest_ip, ip_buf), dest_port);
+             (unsigned int)len, ts_vpn_ip_to_str(dest_ip, ip_buf), dest_port);
 
     return ESP_OK;
 }
 
-esp_err_t microlink_udp_sendto(microlink_t *ml, uint32_t dest_ip,
+esp_err_t ts_udp_sendto(ts_t *ml, uint32_t dest_ip,
                                 uint16_t dest_port, const void *data, size_t len) {
     if (!ml || !data || len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
     // Create temporary socket
-    microlink_udp_socket_t *sock = microlink_udp_create(ml, 0);
+    ts_udp_socket_t *sock = ts_udp_create(ml, 0);
     if (!sock) {
         return ESP_ERR_NO_MEM;
     }
 
     // Send data
-    esp_err_t ret = microlink_udp_send(sock, dest_ip, dest_port, data, len);
+    esp_err_t ret = ts_udp_send(sock, dest_ip, dest_port, data, len);
 
     // Close socket
-    microlink_udp_close(sock);
+    ts_udp_close(sock);
 
     return ret;
 }
 
-esp_err_t microlink_udp_recv(microlink_udp_socket_t *sock, uint32_t *src_ip,
+esp_err_t ts_udp_recv(ts_udp_socket_t *sock, uint32_t *src_ip,
                               uint16_t *src_port, void *buffer, size_t *len,
                               uint32_t timeout_ms) {
     if (!sock || !buffer || !len || *len == 0) {
@@ -516,9 +516,9 @@ esp_err_t microlink_udp_recv(microlink_udp_socket_t *sock, uint32_t *src_ip,
             return ESP_ERR_TIMEOUT;
         }
 
-        // Process MicroLink state machine while waiting (essential for DERP/WG)
+        // Process Tailscale state machine while waiting (essential for DERP/WG)
         if (sock->ml) {
-            microlink_update(sock->ml);
+            ts_update(sock->ml);
         }
 
         // Brief delay
@@ -526,6 +526,6 @@ esp_err_t microlink_udp_recv(microlink_udp_socket_t *sock, uint32_t *src_ip,
     }
 }
 
-uint16_t microlink_udp_get_local_port(const microlink_udp_socket_t *sock) {
+uint16_t ts_udp_get_local_port(const ts_udp_socket_t *sock) {
     return sock ? sock->local_port : 0;
 }

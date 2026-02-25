@@ -1,5 +1,5 @@
 /**
- * @file microlink_peer_registry.c
+ * @file ts_peer_registry.c
  * @brief Flash-based peer registry for 1024+ device support (Task 1.2)
  *
  * Problem: Each peer is ~200 bytes. 1024 peers = 200KB - too much for RAM.
@@ -22,21 +22,21 @@
  * - Persistent storage across reboots
  */
 
-#include "microlink_internal.h"
+#include "ts_internal.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include <string.h>
 #include <arpa/inet.h>  // for htonl
 
-static const char *TAG = "ml_peers";
+static const char *TAG = "ts_peers";
 
 /* ============================================================================
  * Configuration
  * ========================================================================== */
 
 #define PEER_REGISTRY_NVS_PARTITION "peer_nvs"  // Dedicated flash partition (128KB)
-#define PEER_REGISTRY_NVS_NAMESPACE "ml_peers"
+#define PEER_REGISTRY_NVS_NAMESPACE "ts_peers"
 #define PEER_REGISTRY_MAX_PEERS     1024
 #define PEER_CACHE_SIZE             16      // Active peers in RAM
 
@@ -87,7 +87,7 @@ _Static_assert(sizeof(peer_storage_compact_t) == 84, "peer_storage_compact_t siz
  * ========================================================================== */
 
 typedef struct {
-    microlink_peer_t peer;          // Full peer data
+    ts_peer_t peer;          // Full peer data
     uint16_t registry_index;        // Index in flash registry
     uint32_t last_access_ms;        // For LRU eviction
     bool valid;                     // Slot in use
@@ -114,7 +114,7 @@ static peer_registry_t s_registry = {0};
  * Hostname will be "(unknown)" when loaded from flash until
  * coordination server provides it.
  */
-static void peer_to_storage(const microlink_peer_t *peer, peer_storage_compact_t *storage) {
+static void peer_to_storage(const ts_peer_t *peer, peer_storage_compact_t *storage) {
     memset(storage, 0, sizeof(peer_storage_compact_t));
 
     storage->node_id = peer->node_id;
@@ -160,8 +160,8 @@ static void peer_to_storage(const microlink_peer_t *peer, peer_storage_compact_t
  * NOTE: Hostname is set to "(node_XXXXXXXX)" placeholder since it's not stored.
  * The coordination server will update it when peer data is refreshed.
  */
-static void storage_to_peer(const peer_storage_compact_t *storage, microlink_peer_t *peer) {
-    memset(peer, 0, sizeof(microlink_peer_t));
+static void storage_to_peer(const peer_storage_compact_t *storage, ts_peer_t *peer) {
+    memset(peer, 0, sizeof(ts_peer_t));
 
     peer->node_id = storage->node_id;
 
@@ -246,7 +246,7 @@ static esp_err_t flush_cache_entry(int cache_idx) {
 /**
  * @brief Initialize peer registry (NVS-backed)
  */
-esp_err_t microlink_peer_registry_init(void) {
+esp_err_t ts_peer_registry_init(void) {
     if (s_registry.initialized) {
         return ESP_OK;
     }
@@ -292,7 +292,7 @@ esp_err_t microlink_peer_registry_init(void) {
 /**
  * @brief Deinitialize peer registry, flush dirty entries
  */
-void microlink_peer_registry_deinit(void) {
+void ts_peer_registry_deinit(void) {
     if (!s_registry.initialized) {
         return;
     }
@@ -316,12 +316,12 @@ void microlink_peer_registry_deinit(void) {
  * @param vpn_ip Peer's VPN IP address
  * @return Pointer to peer data (valid until next cache eviction), NULL if not found
  */
-microlink_peer_t *microlink_peer_registry_get(uint32_t vpn_ip) {
+ts_peer_t *ts_peer_registry_get(uint32_t vpn_ip) {
     if (!s_registry.initialized) {
         return NULL;
     }
 
-    uint32_t now_ms = microlink_get_time_ms();
+    uint32_t now_ms = ts_get_time_ms();
 
     // Check cache first
     for (int i = 0; i < PEER_CACHE_SIZE; i++) {
@@ -387,12 +387,12 @@ microlink_peer_t *microlink_peer_registry_get(uint32_t vpn_ip) {
  * @param peer Peer data to store
  * @return ESP_OK on success
  */
-esp_err_t microlink_peer_registry_put(const microlink_peer_t *peer) {
+esp_err_t ts_peer_registry_put(const ts_peer_t *peer) {
     if (!s_registry.initialized || !peer) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    uint32_t now_ms = microlink_get_time_ms();
+    uint32_t now_ms = ts_get_time_ms();
 
     // Check if peer already exists (by VPN IP)
     char vpn_key[20];
@@ -433,7 +433,7 @@ esp_err_t microlink_peer_registry_put(const microlink_peer_t *peer) {
     // Update cache if peer is cached
     for (int i = 0; i < PEER_CACHE_SIZE; i++) {
         if (s_registry.entries[i].valid && s_registry.entries[i].peer.vpn_ip == peer->vpn_ip) {
-            memcpy(&s_registry.entries[i].peer, peer, sizeof(microlink_peer_t));
+            memcpy(&s_registry.entries[i].peer, peer, sizeof(ts_peer_t));
             s_registry.entries[i].last_access_ms = now_ms;
             s_registry.entries[i].dirty = false;  // Just saved to flash
             break;
@@ -449,7 +449,7 @@ esp_err_t microlink_peer_registry_put(const microlink_peer_t *peer) {
 /**
  * @brief Get total number of peers in registry
  */
-uint16_t microlink_peer_registry_count(void) {
+uint16_t ts_peer_registry_count(void) {
     return s_registry.initialized ? s_registry.total_peers : 0;
 }
 
@@ -460,7 +460,7 @@ uint16_t microlink_peer_registry_count(void) {
  * @param user_data Passed to callback
  * @return Number of peers iterated
  */
-int microlink_peer_registry_foreach(void (*callback)(const microlink_peer_t *peer, void *user_data),
+int ts_peer_registry_foreach(void (*callback)(const ts_peer_t *peer, void *user_data),
                                      void *user_data) {
     if (!s_registry.initialized || !callback) {
         return 0;
@@ -468,7 +468,7 @@ int microlink_peer_registry_foreach(void (*callback)(const microlink_peer_t *pee
 
     int count = 0;
     peer_storage_compact_t storage;
-    microlink_peer_t peer;
+    ts_peer_t peer;
 
     for (uint16_t i = 0; i < s_registry.total_peers; i++) {
         char key[16];
@@ -489,7 +489,7 @@ int microlink_peer_registry_foreach(void (*callback)(const microlink_peer_t *pee
 /**
  * @brief Clear all peers from registry
  */
-esp_err_t microlink_peer_registry_clear(void) {
+esp_err_t ts_peer_registry_clear(void) {
     if (!s_registry.initialized) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -540,7 +540,7 @@ esp_err_t microlink_peer_registry_clear(void) {
  * @param max_peers Maximum number of peers to return
  * @return Number of peers returned
  */
-int microlink_peer_registry_get_active(microlink_peer_t **peers, int max_peers) {
+int ts_peer_registry_get_active(ts_peer_t **peers, int max_peers) {
     if (!s_registry.initialized || !peers) {
         return 0;
     }
@@ -559,7 +559,7 @@ int microlink_peer_registry_get_active(microlink_peer_t **peers, int max_peers) 
  * Stress Test Implementation (Task 1.2 Verification)
  * ========================================================================== */
 
-#include "microlink_peer_registry.h"
+#include "ts_peer_registry.h"
 #include "esp_random.h"
 
 /**
@@ -567,8 +567,8 @@ int microlink_peer_registry_get_active(microlink_peer_t **peers, int max_peers) 
  *
  * Creates a deterministic peer based on index so we can verify on read-back.
  */
-static void generate_synthetic_peer(uint16_t index, microlink_peer_t *peer) {
-    memset(peer, 0, sizeof(microlink_peer_t));
+static void generate_synthetic_peer(uint16_t index, ts_peer_t *peer) {
+    memset(peer, 0, sizeof(ts_peer_t));
 
     // Deterministic node_id from index
     peer->node_id = 0x10000000 + index;
@@ -608,7 +608,7 @@ static void generate_synthetic_peer(uint16_t index, microlink_peer_t *peer) {
 /**
  * @brief Verify a peer matches expected synthetic data
  */
-static bool verify_synthetic_peer(uint16_t index, const microlink_peer_t *peer) {
+static bool verify_synthetic_peer(uint16_t index, const ts_peer_t *peer) {
     // Verify node_id
     if (peer->node_id != 0x10000000 + index) {
         ESP_LOGE(TAG, "Peer %d: node_id mismatch (expected 0x%08lx, got 0x%08lx)",
@@ -648,13 +648,13 @@ static bool verify_synthetic_peer(uint16_t index, const microlink_peer_t *peer) 
 /**
  * @brief Run stress test with synthetic peers
  */
-esp_err_t microlink_peer_registry_stress_test(uint16_t num_peers,
-                                               microlink_peer_registry_stress_result_t *result) {
+esp_err_t ts_peer_registry_stress_test(uint16_t num_peers,
+                                               ts_peer_registry_stress_result_t *result) {
     if (!result) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    memset(result, 0, sizeof(microlink_peer_registry_stress_result_t));
+    memset(result, 0, sizeof(ts_peer_registry_stress_result_t));
 
     if (num_peers > PEER_REGISTRY_MAX_PEERS) {
         num_peers = PEER_REGISTRY_MAX_PEERS;
@@ -667,7 +667,7 @@ esp_err_t microlink_peer_registry_stress_test(uint16_t num_peers,
 
     // Initialize registry if needed
     if (!s_registry.initialized) {
-        esp_err_t err = microlink_peer_registry_init();
+        esp_err_t err = ts_peer_registry_init();
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to init registry: %d", err);
             return err;
@@ -676,17 +676,17 @@ esp_err_t microlink_peer_registry_stress_test(uint16_t num_peers,
 
     // Clear existing data
     ESP_LOGI(TAG, "Clearing existing peer data...");
-    microlink_peer_registry_clear();
+    ts_peer_registry_clear();
 
     // Phase 1: Write all peers
     ESP_LOGI(TAG, "Phase 1: Writing %d peers to flash...", num_peers);
-    uint32_t write_start = microlink_get_time_ms();
+    uint32_t write_start = ts_get_time_ms();
 
-    microlink_peer_t peer;
+    ts_peer_t peer;
     for (uint16_t i = 0; i < num_peers; i++) {
         generate_synthetic_peer(i, &peer);
 
-        esp_err_t err = microlink_peer_registry_put(&peer);
+        esp_err_t err = ts_peer_registry_put(&peer);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to write peer %d: %d", i, err);
             break;
@@ -699,7 +699,7 @@ esp_err_t microlink_peer_registry_stress_test(uint16_t num_peers,
         }
     }
 
-    result->write_time_ms = microlink_get_time_ms() - write_start;
+    result->write_time_ms = ts_get_time_ms() - write_start;
     ESP_LOGI(TAG, "Write complete: %d peers in %lu ms (%.1f peers/sec)",
              result->peers_written, (unsigned long)result->write_time_ms,
              result->write_time_ms > 0 ? (result->peers_written * 1000.0f / result->write_time_ms) : 0);
@@ -709,13 +709,13 @@ esp_err_t microlink_peer_registry_stress_test(uint16_t num_peers,
 
     // Phase 2: Read back and verify
     ESP_LOGI(TAG, "Phase 2: Reading and verifying %d peers from flash...", num_peers);
-    uint32_t read_start = microlink_get_time_ms();
+    uint32_t read_start = ts_get_time_ms();
 
     for (uint16_t i = 0; i < result->peers_written; i++) {
         // Calculate VPN IP for this index
         uint32_t vpn_ip = 0x64400001 + i;
 
-        microlink_peer_t *loaded = microlink_peer_registry_get(vpn_ip);
+        ts_peer_t *loaded = ts_peer_registry_get(vpn_ip);
         if (loaded) {
             result->peers_read++;
 
@@ -735,7 +735,7 @@ esp_err_t microlink_peer_registry_stress_test(uint16_t num_peers,
         }
     }
 
-    result->read_time_ms = microlink_get_time_ms() - read_start;
+    result->read_time_ms = ts_get_time_ms() - read_start;
     result->flash_bytes_used = result->peers_written * sizeof(peer_storage_compact_t);
     result->passed = (result->peers_verified == result->peers_written);
 

@@ -1,12 +1,12 @@
 /**
- * @file microlink_wireguard.c
+ * @file ts_wireguard.c
  * @brief WireGuard wrapper using wireguard-lwip
  *
  * Integrates wireguard-lwip (smartalock/wireguard-lwip) for ESP32.
  * Provides manual peer management for Tailscale multi-peer support.
  */
 
-#include "microlink_internal.h"
+#include "ts_internal.h"
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_netif.h"
@@ -37,7 +37,7 @@
 // External lwIP global
 extern struct netif *netif_list;
 
-static const char *TAG = "ml_wg";
+static const char *TAG = "ts_wg";
 
 /* Forward declaration for DERP output callback */
 static err_t wg_derp_output_callback(const uint8_t *peer_public_key, const uint8_t *data, size_t len, void *ctx);
@@ -47,7 +47,7 @@ static err_t wg_derp_output_callback(const uint8_t *peer_public_key, const uint8
  *
  * When WireGuard's timer callback triggers a retransmission, it runs from
  * the lwIP tcpip thread which has insufficient stack for mbedtls TLS ops.
- * We queue these packets and send them from the main MicroLink task.
+ * We queue these packets and send them from the main Tailscale task.
  * ========================================================================== */
 
 #define DERP_QUEUE_SIZE 32  // Increased from 8 to handle multiple peer handshakes
@@ -61,10 +61,10 @@ typedef struct {
 } derp_queued_packet_t;
 
 static derp_queued_packet_t derp_packet_queue[DERP_QUEUE_SIZE];
-static microlink_t *queued_ml_ctx = NULL;
+static ts_t *queued_ml_ctx = NULL;
 
 /* NVS keys for persistent storage */
-#define NVS_NAMESPACE       "microlink"
+#define NVS_NAMESPACE       "tailscale"
 #define NVS_KEY_WG_PRIVATE  "wg_private"
 #define NVS_KEY_WG_PUBLIC   "wg_public"
 #define NVS_KEY_DISCO_PRI   "disco_pri"
@@ -96,7 +96,7 @@ static void generate_wireguard_keys(uint8_t *private_key, uint8_t *public_key) {
  * Keys are persisted so the device identity remains stable across reboots.
  * This is critical for Tailscale - if keys change, peers see a "new" device.
  */
-static esp_err_t load_or_generate_keys(microlink_t *ml) {
+static esp_err_t load_or_generate_keys(ts_t *ml) {
     nvs_handle_t nvs;
     esp_err_t ret;
     bool need_save = false;
@@ -182,7 +182,7 @@ static esp_err_t key_to_base64(const uint8_t *key, char *base64_out, size_t out_
     int ret = mbedtls_base64_encode((unsigned char *)base64_out, out_len, &olen, key, 32);
 
     if (ret != 0) {
-        ESP_LOGE("ml_wg", "Base64 encode failed: %d", ret);
+        ESP_LOGE("ts_wg", "Base64 encode failed: %d", ret);
         return ESP_FAIL;
     }
 
@@ -190,10 +190,10 @@ static esp_err_t key_to_base64(const uint8_t *key, char *base64_out, size_t out_
 }
 
 /**
- * @brief Convert MicroLink IP format to lwIP ip_addr_t
+ * @brief Convert Tailscale IP format to lwIP ip_addr_t
  */
-static void microlink_ip_to_lwip(uint32_t ml_ip, ip_addr_t *lwip_ip) {
-    // MicroLink uses host byte order (0x6440000A = 100.64.0.10)
+static void ts_ip_to_lwip(uint32_t ml_ip, ip_addr_t *lwip_ip) {
+    // Tailscale uses host byte order (0x6440000A = 100.64.0.10)
     // lwIP uses network byte order
     IP4_ADDR(&lwip_ip->u_addr.ip4,
              (ml_ip >> 24) & 0xFF,
@@ -204,9 +204,9 @@ static void microlink_ip_to_lwip(uint32_t ml_ip, ip_addr_t *lwip_ip) {
 }
 
 /**
- * @brief Convert lwIP ip_addr_t to MicroLink IP format
+ * @brief Convert lwIP ip_addr_t to Tailscale IP format
  */
-static uint32_t lwip_ip_to_microlink(const ip_addr_t *lwip_ip) {
+static uint32_t lwip_ip_to_tailscale(const ip_addr_t *lwip_ip) {
     if (lwip_ip->type != IPADDR_TYPE_V4) {
         return 0;
     }
@@ -223,10 +223,10 @@ static uint32_t lwip_ip_to_microlink(const ip_addr_t *lwip_ip) {
  * Initialization
  * ========================================================================== */
 
-esp_err_t microlink_wireguard_init(microlink_t *ml) {
+esp_err_t ts_wireguard_init(ts_t *ml) {
     ESP_LOGI(TAG, "Initializing WireGuard with wireguard-lwip");
 
-    memset(&ml->wireguard, 0, sizeof(microlink_wireguard_t));
+    memset(&ml->wireguard, 0, sizeof(ts_wireguard_t));
 
     // Load or generate WireGuard and Disco keys (persisted in NVS)
     esp_err_t key_ret = load_or_generate_keys(ml);
@@ -331,7 +331,7 @@ esp_err_t microlink_wireguard_init(microlink_t *ml) {
     return ESP_OK;
 }
 
-esp_err_t microlink_wireguard_deinit(microlink_t *ml) {
+esp_err_t ts_wireguard_deinit(ts_t *ml) {
     ESP_LOGI(TAG, "Deinitializing WireGuard");
 
     if (!ml->wireguard.initialized) {
@@ -376,7 +376,7 @@ esp_err_t microlink_wireguard_deinit(microlink_t *ml) {
     ml->wireguard.initialized = false;
 
     // Clear keys from memory
-    memset(&ml->wireguard, 0, sizeof(microlink_wireguard_t));
+    memset(&ml->wireguard, 0, sizeof(ts_wireguard_t));
 
     return ESP_OK;
 }
@@ -385,7 +385,7 @@ esp_err_t microlink_wireguard_deinit(microlink_t *ml) {
  * Peer Management
  * ========================================================================== */
 
-esp_err_t microlink_wireguard_add_peer(microlink_t *ml, const microlink_peer_t *peer) {
+esp_err_t ts_wireguard_add_peer(ts_t *ml, const ts_peer_t *peer) {
     if (!ml->wireguard.initialized || !ml->wireguard.netif) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -427,7 +427,7 @@ esp_err_t microlink_wireguard_add_peer(microlink_t *ml, const microlink_peer_t *
 
     // Set endpoint if available (IPv4 only for now - TODO: add IPv6 WireGuard support)
     if (peer->endpoint_count > 0 && !peer->endpoints[0].is_derp && !peer->endpoints[0].is_ipv6) {
-        microlink_ip_to_lwip(peer->endpoints[0].addr.ip4, &wg_peer.endpoint_ip);
+        ts_ip_to_lwip(peer->endpoints[0].addr.ip4, &wg_peer.endpoint_ip);
         wg_peer.endport_port = peer->endpoints[0].port;
     } else {
         // No direct endpoint or IPv6-only, will rely on DERP
@@ -449,7 +449,7 @@ esp_err_t microlink_wireguard_add_peer(microlink_t *ml, const microlink_peer_t *
 
     // Store peer index for later reference
     uint8_t last_byte = peer->vpn_ip & 0xFF;
-    if (last_byte < MICROLINK_PEER_MAP_SIZE) {
+    if (last_byte < TS_PEER_MAP_SIZE) {
         ml->peer_map[last_byte] = peer_index;
     }
 
@@ -495,7 +495,7 @@ esp_err_t microlink_wireguard_add_peer(microlink_t *ml, const microlink_peer_t *
  * Called when DISCO discovers a direct path to a peer.
  * Updates the WireGuard peer's endpoint and initiates handshake.
  */
-esp_err_t microlink_wireguard_update_endpoint(microlink_t *ml, uint32_t vpn_ip,
+esp_err_t ts_wireguard_update_endpoint(ts_t *ml, uint32_t vpn_ip,
                                                uint32_t endpoint_ip, uint16_t endpoint_port) {
     if (!ml->wireguard.initialized || !ml->wireguard.netif) {
         return ESP_ERR_INVALID_STATE;
@@ -503,7 +503,7 @@ esp_err_t microlink_wireguard_update_endpoint(microlink_t *ml, uint32_t vpn_ip,
 
     // Find peer index by VPN IP
     uint8_t last_byte = vpn_ip & 0xFF;
-    if (last_byte >= MICROLINK_PEER_MAP_SIZE) {
+    if (last_byte >= TS_PEER_MAP_SIZE) {
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -514,7 +514,7 @@ esp_err_t microlink_wireguard_update_endpoint(microlink_t *ml, uint32_t vpn_ip,
 
     // Convert endpoint IP to lwIP format
     ip_addr_t lwip_endpoint;
-    microlink_ip_to_lwip(endpoint_ip, &lwip_endpoint);
+    ts_ip_to_lwip(endpoint_ip, &lwip_endpoint);
 
     // Update peer endpoint
     err_t err = wireguardif_update_endpoint((struct netif *)ml->wireguard.netif,
@@ -548,18 +548,18 @@ esp_err_t microlink_wireguard_update_endpoint(microlink_t *ml, uint32_t vpn_ip,
  * Used when attempting to send data to a peer that doesn't have an active session.
  * Initiates handshake via DERP (reliable) first, with direct UDP as fallback.
  *
- * @param ml MicroLink handle
+ * @param ml Tailscale handle
  * @param vpn_ip Peer VPN IP (host byte order)
  * @return ESP_OK on success
  */
-esp_err_t microlink_wireguard_trigger_handshake(microlink_t *ml, uint32_t vpn_ip) {
+esp_err_t ts_wireguard_trigger_handshake(ts_t *ml, uint32_t vpn_ip) {
     if (!ml || !ml->wireguard.initialized) {
         return ESP_ERR_INVALID_STATE;
     }
 
     // Find peer index
     uint8_t last_byte = vpn_ip & 0xFF;
-    if (last_byte >= MICROLINK_PEER_MAP_SIZE) {
+    if (last_byte >= TS_PEER_MAP_SIZE) {
         ESP_LOGW(TAG, "Invalid VPN IP for handshake: %lu", (unsigned long)vpn_ip);
         return ESP_ERR_NOT_FOUND;
     }
@@ -630,7 +630,7 @@ esp_err_t microlink_wireguard_trigger_handshake(microlink_t *ml, uint32_t vpn_ip
  * Data Transfer
  * ========================================================================== */
 
-esp_err_t microlink_wireguard_send(microlink_t *ml, uint32_t dest_vpn_ip,
+esp_err_t ts_wireguard_send(ts_t *ml, uint32_t dest_vpn_ip,
                                    const uint8_t *data, size_t len) {
     if (!ml->wireguard.initialized) {
         return ESP_ERR_INVALID_STATE;
@@ -638,7 +638,7 @@ esp_err_t microlink_wireguard_send(microlink_t *ml, uint32_t dest_vpn_ip,
 
     // Find peer index
     uint8_t last_byte = dest_vpn_ip & 0xFF;
-    if (last_byte >= MICROLINK_PEER_MAP_SIZE) {
+    if (last_byte >= TS_PEER_MAP_SIZE) {
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -668,7 +668,7 @@ esp_err_t microlink_wireguard_send(microlink_t *ml, uint32_t dest_vpn_ip,
     return ESP_OK;
 }
 
-esp_err_t microlink_wireguard_receive(microlink_t *ml) {
+esp_err_t ts_wireguard_receive(ts_t *ml) {
     if (!ml->wireguard.initialized) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -676,16 +676,16 @@ esp_err_t microlink_wireguard_receive(microlink_t *ml) {
     // Direct UDP reception is handled automatically by wireguard-lwip via udp_recv callback
     // This function processes DERP-relayed packets from the rx_queue
     while (ml->rx_head != ml->rx_tail) {
-        microlink_packet_t *pkt = &ml->rx_queue[ml->rx_tail];
+        ts_packet_t *pkt = &ml->rx_queue[ml->rx_tail];
 
         // Inject DERP-relayed packet into WireGuard
-        esp_err_t ret = microlink_wireguard_inject_derp_packet(ml, pkt->src_vpn_ip,
+        esp_err_t ret = ts_wireguard_inject_derp_packet(ml, pkt->src_vpn_ip,
                                                                 pkt->data, pkt->len);
         if (ret != ESP_OK) {
             ESP_LOGD(TAG, "Failed to inject DERP packet: %d", ret);
         }
 
-        ml->rx_tail = (ml->rx_tail + 1) % MICROLINK_RX_QUEUE_SIZE;
+        ml->rx_tail = (ml->rx_tail + 1) % TS_RX_QUEUE_SIZE;
     }
 
     return ESP_OK;
@@ -697,13 +697,13 @@ esp_err_t microlink_wireguard_receive(microlink_t *ml) {
  * When a WireGuard packet arrives via DERP relay OR direct UDP (on DISCO port),
  * we need to pass it to the WireGuard stack for decryption and routing.
  *
- * @param ml MicroLink handle
+ * @param ml Tailscale handle
  * @param src_ip Source IP in network byte order (0 for DERP relay)
  * @param data Raw WireGuard packet data
  * @param len Packet length
  * @return ESP_OK on success
  */
-esp_err_t microlink_wireguard_inject_derp_packet(microlink_t *ml, uint32_t src_ip,
+esp_err_t ts_wireguard_inject_derp_packet(ts_t *ml, uint32_t src_ip,
                                                   const uint8_t *data, size_t len) {
     if (!ml->wireguard.initialized || !ml->wireguard.netif) {
         return ESP_ERR_INVALID_STATE;
@@ -756,7 +756,7 @@ esp_err_t microlink_wireguard_inject_derp_packet(microlink_t *ml, uint32_t src_i
     return ESP_OK;
 }
 
-esp_err_t microlink_wireguard_inject_packet(microlink_t *ml, uint32_t src_ip, uint16_t src_port,
+esp_err_t ts_wireguard_inject_packet(ts_t *ml, uint32_t src_ip, uint16_t src_port,
                                              const uint8_t *data, size_t len) {
     if (!ml->wireguard.initialized || !ml->wireguard.netif) {
         return ESP_ERR_INVALID_STATE;
@@ -787,7 +787,7 @@ esp_err_t microlink_wireguard_inject_packet(microlink_t *ml, uint32_t src_ip, ui
  * We relay the WireGuard packet through DERP using the peer's public key.
  */
 static err_t wg_derp_output_callback(const uint8_t *peer_public_key, const uint8_t *data, size_t len, void *ctx) {
-    microlink_t *ml = (microlink_t *)ctx;
+    ts_t *ml = (ts_t *)ctx;
 
     if (!ml) {
         ESP_LOGE(TAG, "DERP output callback: NULL context");
@@ -853,7 +853,7 @@ static err_t wg_derp_output_callback(const uint8_t *peer_public_key, const uint8
              (unsigned long)stack_remaining);
 
     // Send via DERP using the peer's public key
-    esp_err_t err = microlink_derp_send_raw(ml, peer_public_key, data, len);
+    esp_err_t err = ts_derp_send_raw(ml, peer_public_key, data, len);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "DERP send failed: %d", err);
         return ERR_IF;  // Interface error
@@ -865,9 +865,9 @@ static err_t wg_derp_output_callback(const uint8_t *peer_public_key, const uint8
 /**
  * @brief Process queued DERP packets from main task context
  *
- * Call this periodically from the main MicroLink task which has sufficient stack.
+ * Call this periodically from the main Tailscale task which has sufficient stack.
  */
-void microlink_wireguard_process_derp_queue(void) {
+void ts_wireguard_process_derp_queue(void) {
     if (!queued_ml_ctx) {
         return;
     }
@@ -886,7 +886,7 @@ void microlink_wireguard_process_derp_queue(void) {
             ESP_LOGI(TAG, "Sending queued DERP packet (slot %d): %u bytes",
                      i, (unsigned int)derp_packet_queue[i].len);
 
-            esp_err_t err = microlink_derp_send_raw(
+            esp_err_t err = ts_derp_send_raw(
                 queued_ml_ctx,
                 derp_packet_queue[i].peer_pubkey,
                 derp_packet_queue[i].data,
@@ -906,13 +906,13 @@ void microlink_wireguard_process_derp_queue(void) {
  * Status & Utilities
  * ========================================================================== */
 
-void microlink_wireguard_get_public_key(const microlink_t *ml, uint8_t *public_key) {
+void ts_wireguard_get_public_key(const ts_t *ml, uint8_t *public_key) {
     // TODO: Extract actual public key from wireguard-lwip
     // For now, return the stored key
     memcpy(public_key, ml->wireguard.public_key, 32);
 }
 
-esp_err_t microlink_wireguard_set_vpn_ip(microlink_t *ml, uint32_t vpn_ip) {
+esp_err_t ts_wireguard_set_vpn_ip(ts_t *ml, uint32_t vpn_ip) {
     if (!ml->wireguard.initialized || !ml->wireguard.netif) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -941,7 +941,7 @@ esp_err_t microlink_wireguard_set_vpn_ip(microlink_t *ml, uint32_t vpn_ip) {
 
     char ip_buf[16];
     ESP_LOGI(TAG, "WireGuard VPN IP set to: %s",
-             microlink_vpn_ip_to_str(vpn_ip, ip_buf));
+             ts_vpn_ip_to_str(vpn_ip, ip_buf));
 
     return ESP_OK;
 }
@@ -1022,7 +1022,7 @@ done:
     return result;
 }
 
-esp_err_t microlink_wireguard_enable_magicsock(microlink_t *ml) {
+esp_err_t ts_wireguard_enable_magicsock(ts_t *ml) {
     if (!ml->wireguard.initialized || !ml->wireguard.netif) {
         ESP_LOGE(TAG, "WireGuard not initialized");
         return ESP_ERR_INVALID_STATE;
@@ -1038,7 +1038,7 @@ esp_err_t microlink_wireguard_enable_magicsock(microlink_t *ml) {
     }
 
     // Get the DISCO socket fd
-    magicsock_fd = microlink_disco_get_socket();
+    magicsock_fd = ts_disco_get_socket();
     if (magicsock_fd < 0) {
         ESP_LOGE(TAG, "DISCO socket not available");
         return ESP_ERR_INVALID_STATE;

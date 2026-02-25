@@ -27,7 +27,7 @@ echo ""
   die "Run this script from the wol-esp32 project root."
 
 # ── Check vendored Tailscale library ──────────────────────────
-[[ -d "microlink/src" ]] || die "Vendored Tailscale library not found in microlink/. Is the repo intact?"
+[[ -d "lib/tailscale/src" ]] || die "Vendored Tailscale library not found in lib/tailscale/. Is the repo intact?"
 ok "Tailscale library found"
 
 # ── Find ESP-IDF ─────────────────────────────────────────────
