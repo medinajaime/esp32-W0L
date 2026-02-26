@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://medinajaime.github.io/esp32-wol/sitemap.xml

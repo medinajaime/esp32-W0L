@@ -10,3 +10,6 @@ qrt.txt
 # Python
 __pycache__/
 *.pyc
+
+# ESP-IDF dependency lock
+dependencies.lock
