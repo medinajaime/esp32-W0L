@@ -368,11 +368,27 @@
     .fade-in:nth-child(3) { transition-delay: 0.2s; }
     .fade-in:nth-child(4) { transition-delay: 0.3s; }
 
-    @media (max-width: 540px) {
+    @media (max-width: 640px) {
       .why-grid { grid-template-columns: 1fr; }
       .flow { flex-direction: column; }
       .flow-arrow { transform: rotate(90deg); }
-      .hero { padding: 60px 24px 60px; }
+      .hero { padding: 60px 16px 48px; }
+      .hero h1 { font-size: 2rem; }
+      .hero-sub { font-size: 1rem; }
+      .section { padding: 48px 16px; }
+
+      .terminal { margin: 0 -8px; border-radius: 8px; }
+      .terminal-body { padding: 14px 12px; font-size: 0.72rem; line-height: 1.7; }
+      .terminal-body div { overflow-wrap: break-word; }
+
+      .steps-grid { grid-template-columns: 1fr; }
+      .hardware-grid { grid-template-columns: 1fr; }
+
+      .hero-actions { gap: 10px; }
+      .hero-actions .btn { padding: 10px 16px; font-size: 0.85rem; }
+
+      .qs-step { grid-template-columns: 28px 1fr; gap: 12px; }
+      .qs-num { width: 28px; height: 28px; font-size: 0.8rem; }
     }
   </style>
 </head>

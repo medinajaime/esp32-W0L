@@ -72,6 +72,7 @@
     .docs-content {
       padding: 48px 48px 80px;
       max-width: 780px;
+      overflow-wrap: break-word;
     }
 
     .docs-content h1 {
@@ -229,8 +230,17 @@
       }
       .sidebar.open { left: 0; }
       .sidebar-toggle { display: flex; align-items: center; justify-content: center; }
-      .docs-content { padding: 32px 20px 60px; }
-      .docs-content h2 { font-size: 1.25rem; }
+      .docs-content { padding: 24px 16px 60px; }
+      .docs-content h1 { font-size: 1.5rem; }
+      .docs-content h2 { font-size: 1.15rem; }
+      .docs-content h3 { font-size: 0.95rem; }
+      .docs-content .lead { font-size: 0.95rem; }
+
+      .docs-content table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .docs-content th, .docs-content td { font-size: 0.8rem; padding: 8px 10px; min-width: 100px; }
+
+      .state-flow { font-size: 0.7rem; gap: 4px; padding: 12px; flex-wrap: wrap; justify-content: center; }
+      .state-box { padding: 3px 7px; }
     }
   </style>
 </head>

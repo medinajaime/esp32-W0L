@@ -269,5 +269,13 @@ pre code {
 
 @media (max-width: 640px) {
   .nav-links .hide-mobile { display: none; }
+  .nav-links { gap: 12px; }
   .footer-inner { flex-direction: column; text-align: center; }
+
+  pre code {
+    font-size: 0.78rem;
+    padding: 14px;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
 }
