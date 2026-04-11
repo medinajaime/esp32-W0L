@@ -13,3 +13,5 @@ __pycache__/
 
 # ESP-IDF dependency lock
 dependencies.lock
+*HISTORY.md
+*PAPER.md
