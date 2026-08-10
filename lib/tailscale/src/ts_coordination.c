@@ -2604,6 +2604,8 @@ esp_err_t ts_coordination_fetch_peers(ts_t *ml) {
             cJSON_AddItemToArray(endpoints, cJSON_CreateString(stun_ep));
             cJSON_AddItemToArray(endpoint_types, cJSON_CreateNumber(2));  // EndpointSTUN
             endpoint_count++;
+            ml->stun.advertised_ip = ml->stun.public_ip;
+            ml->stun.advertised_port = ml->stun.public_port;
             ESP_LOGI(TAG, "Advertising STUN endpoint: %s (type: STUN)", stun_ep);
         }
 
@@ -3676,6 +3678,16 @@ esp_err_t ts_coordination_heartbeat(ts_t *ml) {
         return ESP_OK;
     }
 
+    // Same rule applies when the endpoint hasn't changed since we last advertised
+    // it: the Stream=false request would kill the long-poll connection for no
+    // benefit, forcing a full ~11 s re-registration cycle every heartbeat.
+    if (ml->stun.public_ip == ml->stun.advertised_ip &&
+        ml->stun.public_port == ml->stun.advertised_port) {
+        ESP_LOGI(TAG, "Heartbeat skipped: endpoints unchanged (long-poll maintains online status)");
+        ml->coordination.last_heartbeat_ms = ts_get_time_ms();
+        return ESP_OK;
+    }
+
     ESP_LOGI(TAG, "Sending endpoint update (Stream=false, OmitPeers=true)");
     ESP_LOGI(TAG, "Socket %d appears valid, sending heartbeat...", sock);
 
@@ -3894,6 +3906,8 @@ esp_err_t ts_coordination_heartbeat(ts_t *ml) {
 
     ESP_LOGI(TAG, "Heartbeat sent successfully on stream %lu", (unsigned long)stream_id);
     ml->coordination.last_heartbeat_ms = ts_get_time_ms();
+    ml->stun.advertised_ip = ml->stun.public_ip;
+    ml->stun.advertised_port = ml->stun.public_port;
     return ESP_OK;
 }
 

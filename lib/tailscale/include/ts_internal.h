@@ -162,6 +162,8 @@ typedef struct {
     void *netif;                        ///< lwIP network interface (struct netif*)
     uint32_t public_ip;                 ///< Discovered public IP
     uint16_t public_port;               ///< Discovered public port
+    uint32_t advertised_ip;             ///< Public IP last advertised to the coordination server
+    uint16_t advertised_port;           ///< Public port last advertised to the coordination server
     uint64_t last_probe_ms;
     bool nat_detected;
 } ts_stun_t;

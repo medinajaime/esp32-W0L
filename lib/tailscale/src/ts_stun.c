@@ -328,15 +328,29 @@ esp_err_t ts_stun_probe(ts_t *ml) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    // Try primary STUN server first (Tailscale)
-    if (stun_probe_server(ml, TS_STUN_SERVER, TS_STUN_PORT) == ESP_OK) {
-        return ESP_OK;
-    }
+    // Stick with whichever server answered last time — every attempt against an
+    // unreachable server costs seconds of retry timeouts, and on some networks
+    // the primary (derp1, port 3478) never answers.
+    static bool prefer_fallback = false;
 
-    // Try fallback server (Google)
-    ESP_LOGW(TAG, "Primary STUN server failed, trying fallback...");
-    if (stun_probe_server(ml, TS_STUN_SERVER_FALLBACK, TS_STUN_PORT_GOOGLE) == ESP_OK) {
-        return ESP_OK;
+    if (!prefer_fallback) {
+        if (stun_probe_server(ml, TS_STUN_SERVER, TS_STUN_PORT) == ESP_OK) {
+            return ESP_OK;
+        }
+        ESP_LOGW(TAG, "Primary STUN server failed, trying fallback...");
+        if (stun_probe_server(ml, TS_STUN_SERVER_FALLBACK, TS_STUN_PORT_GOOGLE) == ESP_OK) {
+            prefer_fallback = true;
+            return ESP_OK;
+        }
+    } else {
+        if (stun_probe_server(ml, TS_STUN_SERVER_FALLBACK, TS_STUN_PORT_GOOGLE) == ESP_OK) {
+            return ESP_OK;
+        }
+        ESP_LOGW(TAG, "Fallback STUN server failed, trying primary...");
+        if (stun_probe_server(ml, TS_STUN_SERVER, TS_STUN_PORT) == ESP_OK) {
+            prefer_fallback = false;
+            return ESP_OK;
+        }
     }
 
     ESP_LOGE(TAG, "All STUN servers failed");
